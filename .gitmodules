@@ -1,0 +1,9 @@
+[submodule "packages/java/procureiq-springboot"]
+	path = packages/java/procureiq-springboot
+	url = https://github.com/Chief-Strategist-J/procureiq-springboot.git
+[submodule "packages/python/procureiq-python"]
+	path = packages/python/procureiq-python
+	url = https://github.com/Chief-Strategist-J/procureiq-python.git
+[submodule "packages/node/procureiq-nextjs"]
+	path = packages/node/procureiq-nextjs
+	url = https://github.com/Chief-Strategist-J/procureiq-nextjs.git
