@@ -1,0 +1,6 @@
+[2026-07-06 15:26:45] Created and initialized monorepo and sub-package repositories
+└── File: /home/btpl-lap-22/live/ProcureIQ
+    ├── Choice: Standalone git repos inside a master monorepo with submodule registration
+    └── Changes:
+        ├── monorepo-setup -> Create 3 package-first repos (Spring Boot, Python FastAPI, Next.js) and 1 parent monorepo
+        └── packages/java/procureiq-springboot, packages/python/procureiq-python, packages/node/procureiq-nextjs, ProcureIQ -> Created GitHub repos, initialized Git, and pushed all code templates as public repositories
