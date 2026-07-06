@@ -1,0 +1,6 @@
+[2026-07-06 15:29:22] Created flow file for Dispatched Quantity
+└── File: flow/dispatched-quantity.yml
+    ├── Choice: YAML format for flow-centric mapping
+    └── Changes:
+        ├── documentation -> Add Dispatched Quantity flow reference mapping mechanism A and B
+        └── flow/dispatched-quantity.yml -> Added new flow file to document dispatched quantity flow
