@@ -1,0 +1,116 @@
+# DISPATCHED QUANTITY — flow-centric, endpoint-level contract map
+# created: 2026-07-06
+# Scope: TWO independent dispatch mechanisms that both end up showing a "dispatched
+#        quantity" value to the user:
+#          (A) sales_order -> inventory_dc (sentqty)              -- product dispatch
+#          (B) cms/complaint indent -> spare_dc -> dispatchQty     -- spares dispatch
+# Source of truth: actual Angular request-building code (real client contract).
+# Cross-references flow/inventory-flow.yml (inventory_dc is documented there in full
+# for its DC->Invoice edge -- NOT re-documented here, only referenced) and
+# flow/sales-flow.yml (sales_order's inventory_dc edge).
+# No file/method names below by design would break the pattern used by those two
+# files -- exception made here for the spare-dc/indent linkage below since it was
+# researched fresh this pass and file:line is the only way to keep it re-verifiable.
+
+# ============================================================================
+# GRAPH -- at a glance
+# ============================================================================
+graph:
+  mechanism_a_product_dispatch:
+    entity: inventory_dc
+    fed_by: [sales_order]
+    quantity_field: sentqty
+    documented_in: flow/inventory-flow.yml
+    note: "full lifecycle (approval, cancel, batch/serial, DC->Invoice) already documented there -- not repeated here"
+  mechanism_b_spares_dispatch:
+    entity: spare_dc
+    fed_by: [cms_complaint_indent]
+    quantity_field: sentqty (per-line, on Spare-DC) -> dispatchQty (read-only rollup shown back on the indent)
+    documented_in: this file (new)
+  displayed_on:
+    - entities/workOrder/detail/workOrder-detail.component.html (lines 1171, 1383, 1596 + summary rows 1267/1479/1694)
+    - entities/cms/detail/cms-detail.component.html (lines 693, 726)
+    - entities/estimation/detail/estimation-detail.component.html (line 1098)
+  not_connected_to: "entities/opportunity/ -- grepped, zero references to dispatch anywhere in that module"
+
+# ============================================================================
+# dispatchQty -- the field itself
+# ============================================================================
+dispatchQty_field:
+  why_it_exists: "lets a Work Order / CMS complaint / Estimation viewer see, per spare-part indent line, how much has actually shipped so far vs. how much was requested and how much has been consumed"
+  type: "untyped -- appears only inside dynamic (`any`) mapSpareIndentRequests objects, never declared in any .model.ts"
+  origin: "never assigned anywhere in Angular code (confirmed: no `dispatchQty =` in any .ts file) -- read verbatim off whatever the backend returns for the Work Order/CMS/Estimation detail GET"
+  sibling_fields_same_row: [qty (requested), dispatchQty (shipped-so-far), usedQty (consumed-so-far)]
+  backward_link: "not confirmed at the Angular layer -- see spare_dc.dispatchqty_resolution below"
+
+# ============================================================================
+# STAGE -- SPARE-DC (spares dispatch, feeds dispatchQty back onto the indent)
+# ============================================================================
+spare_dc:
+  resourceUrl: "api/spares-dcs (spare-dc.service.ts:33)"
+  related_urls:
+    dcactUrls: "api/inventory-grns/inv (spare-dc.service.ts:34)"
+    doc_approval: "api/inventory-dc-doc-apprs (spare-dc.service.ts:35)"
+    report: "api/dcs (spare-dc.service.ts:36)"
+
+  inbound_pull:
+    why: "a spare-part indent (requested on a CMS complaint's Work Order) needs to actually ship from the warehouse -- Spare-DC is that dispatch paperwork"
+    from: cms_complaint_indent
+    endpoint: {method: GET, path: "api/complaints/dc-reference?complaintId={id}"}
+    called_via: "cmsService.getIndentListComplaint(submodule.id) -- cms.service.ts:86-90"
+    called_at: "spare-dc-update.component.ts:2059"
+    response_used: "mapSpareIndentRequestsDTO arrays, flattened at spare-dc-update.component.ts:2062 into sOrderAddressData -- becomes the editable line-item grid"
+    note: "a separate workOrderService.find(workOrder.woid) call exists (spare-dc-update.component.ts:689) but only builds an ASSET table from wo.mapWorkOrderProducts -- it does not touch mapSpareIndentRequests. Only the CMS route feeds indent lines into Spare-DC; a direct Work-Order-side indent pull was not found."
+
+  per_line_dispatch_qty:
+    field: sentqty
+    set_at: "spare-dc-update.component.ts:1302 -- sentqty: +element.quantitySo"
+    validation: "client-side only, via canSubmit getter (spare-dc-update.component.ts:1204-1209): quantitySo <= item.qty (qty = indent's requested amount). No explicit lower-bound check beyond a truthy/non-empty guard."
+
+  backward_pointer_to_indent:
+    confirmed: true
+    where: "spare-dc-update.component.ts:1295-1298 -- each line row sets mapIndentSpares: { id: element.id }, element.id being the id from the flattened mapSpareIndentRequestsDTO row. Travels inside mapDcSparesList on create/update."
+    caveat: "spare-dc.model.ts:43 types mapDcSparesList?: any | null -- untyped, no dedicated line-item model exists, so this pointer is present at runtime only, not compiler-enforced."
+
+  create_update:
+    create: {method: POST, path: "api/spares-dcs (spare-dc.service.ts:40-45)"}
+    update: {method: PUT, path: "api/spares-dcs/{id} (spare-dc.service.ts:47-52)"}
+    partial: {method: PATCH, path: "api/spares-dcs/{id} (spare-dc.service.ts:54-59)"}
+    request: "inventoryDc.mapDcSparesList = this.additionaladdressForm (spare-dc-update.component.ts:2392), sent at lines 2403/2405"
+    response_used: none
+
+  dispatchqty_resolution:
+    finding: "no PUT/PATCH from anywhere under entities/spare-dc/ targets a workorder or indent endpoint (grep for workOrderService.update|partialUpdate and api/work-orders in that folder: zero hits)"
+    conclusion: "dispatchQty reappearing on the indent (Work Order/CMS/Estimation) after a Spare-DC save is almost certainly a BACKEND join/recompute on the next GET, using the mapIndentSpares.id pointer stored via Spare-DC's own create/update call -- NOT confirmed at the Angular layer since backend Java is out of scope for this frontend-only doc"
+
+  approval:
+    family: dialog_cascade (same shape as inventory_dc, see flow/sales-flow.yml's approval_cycle anchor)
+    request: {method: POST, path: "api/spares-dcs/inventorymarginrequestapproval (spare-dc.service.ts:405-417)"}
+    check_pending: {method: GET, path: "api/spares-dcs/getinventorydcsdocrequestapproval (spare-dc.service.ts:422-429)"}
+    decide: {method: POST, path: "api/spares-dcs/inventorydocapproval (spare-dc.service.ts:470-499)"}
+
+  cancel:
+    endpoint: {method: GET, path: "api/spares-dcs/cancel-sdc (spare-dc.service.ts:573-574)"}
+    note: "GET, not POST -- same inconsistent-verb pattern already noted for Estimation's cancel in flow/sales-flow.yml"
+
+# ============================================================================
+# STAGE -- INVENTORY-DC (product dispatch; sentqty) -- POINTER ONLY
+# ============================================================================
+inventory_dc_product_dispatch:
+  see: flow/inventory-flow.yml#inventory_dc
+  summary_for_this_doc: >
+    User opens entities/inventory-dc, picks a Sales Order -> GET
+    api/sales-orders/mapsoproductforinventorydc/{salesOrderId} returns each line's
+    remaining orderable qty -> user enters sentqty per line (validated
+    0 < sentqty <= qty client-side) -> POST/PUT api/inventory-dcs saves
+    mapInventoryDcProducts. This qty is NOT the same field as dispatchQty above --
+    it is the per-transaction dispatch amount for PRODUCTS off a Sales Order, not the
+    running-total spares field shown on Work Order/CMS/Estimation.
+
+# ============================================================================
+# NOTES
+# ============================================================================
+notes:
+  - "There are TWO unrelated things both colloquially called 'dispatch' in this codebase: (1) sentqty on inventory-dc, a per-transaction product-dispatch amount off a Sales Order, fully documented in flow/inventory-flow.yml; (2) dispatchQty, a read-only running-total spares field shown on Work Order/CMS/Estimation, fed by Spare-DC saves against a CMS indent. Do not conflate the two when tracing a bug report that just says 'dispatch qty is wrong.'"
+  - "dispatchQty itself has zero write path in Angular -- if it's wrong, the bug is either in the backend recompute or in the mapIndentSpares.id pointer Spare-DC sends, not in any frontend display logic (the templates just interpolate {{ detail.dispatchQty }} verbatim)."
+  - "Spare-DC's indent pull is CMS-only (api/complaints/dc-reference) -- there is no confirmed Work-Order-side equivalent, even though dispatchQty is also displayed on the Work Order detail page itself."
