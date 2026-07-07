@@ -1,0 +1,313 @@
+# PURCHASE PIPELINE — flow-centric, endpoint-level contract map
+# updated: 2026-07-03 (rev 1)
+# Scope: sales-order -> purchase-order (normal + buyback, cross-module, SO-owned)
+#        purchase-order -> inventory-grn (cross-module, fully documented in flow/inventory-flow.yml,
+#                           only the outbound edge is repeated here for graph completeness)
+#        inventory-grn -> purchase-bill (cross-module, fully documented in flow/inventory-flow.yml,
+#                           only the inbound edge is repeated here for graph completeness)
+#        purchase-order -> purchase-bill (DIRECT, bypassing GRN entirely -- new finding, not
+#                           previously documented anywhere)
+#        purchase-bill -> inventory-sr/RMA (cross-module, fully documented in flow/inventory-flow.yml,
+#                           only the outbound edge is repeated here for graph completeness)
+#        purchase-order -> payable (Supplier Advance -- new finding)
+#        purchase-bill -> payable (Bill Payment -- new finding)
+#        purchase-bill -> debit-note (new finding)
+# Source of truth: actual Angular request-building code (real client contract).
+# NOT independently verified against live server responses this pass (no live-API tool
+# used this session) -- "response_used" lists ONLY fields the frontend code actually
+# reads back; it is not a full server response schema.
+# No file/method names below by design -- this is a data-contract view, not a code map.
+# Cross-references flow/inventory-flow.yml (PO->GRN, GRN->PB, PB->RMA already documented
+# there in full) and flow/sales-flow.yml (SO->PO normal + buyback already documented
+# there in full) -- those edges are NOT re-documented, only the Purchase-side end is covered.
+# Every edge carries: why (business reason) and backward_link (target -> source traceable?).
+
+# ============================================================================
+# REUSABLE PATTERN — Purchase Bill uses the same margin/doc two-step approval
+# cycle as Quote/Sales-Order/Billing/Estimation/Inventory-DC (see flow/inventory-flow.yml's
+# inventory_dc_approval anchor for the general shape). Concrete endpoints repeated
+# here since anchors don't carry across files.
+# ============================================================================
+purchase_bill_approval: &purchase_bill_approval
+  why: "gates Purchase Bill creation/edit the same way quotes/sales-orders/billing/inventory-dc are gated -- a manager must sign off on margin and/or supporting documents before the vendor bill is final"
+  step_1_request_approval:
+    endpoint: {method: POST, path: "/api/purchase-bills/purchasebillrequestapproval"}
+    request: {location: query params, fields: [id, remarks, isDraft]}
+    response_used: none
+  step_1b_check_pending:
+    endpoint: {method: GET, path: "/api/purchase-bills/getpurchasebillsdocrequestapproval"}
+    request: {location: query params, fields: [id, subModulePath]}
+    response_used: "pending-approval state, drives which buttons the detail page shows"
+  step_2_decide:
+    endpoint: {method: POST, path: "/api/purchase-bills/purchasebilldocapproval"}
+    request:
+      location: query params
+      fields: [purchasebillId, isApproveReject ("approve" | "reject"), modulePath, remarks, purchasebillReqApproval (nullable), isDraft, isEditDraftApprove]
+    response_used: none
+    note: "called from at least 10 separate branches in the detail component covering approve/reject/draft/draft-approve/draft-reject/after-draft -- same shape repeated per branch, not one shared call site"
+  audit_trail:
+    endpoint: {method: GET, path: "/api/purchase-bill-doc-apprs?sidId.equals={id}"}
+    gated_by: "only fetched when getalldetails.isDocument == true -- i.e. only shown once map-purchase-bill-docs has at least one uploaded file, same causal relationship inventory-flow.yml documented between GRN/DC docs and inventory-dc-doc-appr"
+    note: "read-only audit log -- the only real usage of the purchase-bill-doc-appr sibling entity; purchase-bill-appr and purchase-bill-request-appr sibling entities are unreferenced CRUD scaffolds, not wired into this flow"
+  backward_link: "n/a -- approval mutates the PB's own status/document fields"
+  cross_module_family: "shared verbatim (same method-name shape) across invoice, quotes, payable, sparecredit, spare-pb, inventory-dc, sales-order, credit-note, payment -- Purchase Bill is a full member of this reusable approval family, not a Purchase-only pattern"
+
+# ============================================================================
+# PURCHASE ORDER'S OWN APPROVAL — a DIFFERENT, single-step pattern (NOT the
+# two-step family above). Worth knowing: same module, two sibling entities
+# (PO and PB), two different approval mechanisms.
+# ============================================================================
+purchase_order_approval: &purchase_order_approval
+  why: "gates Purchase Order submission -- simpler single-decision sign-off, unlike PB's two-step margin+doc cycle"
+  request_and_decide:
+    endpoint: {method: POST, path: "/api/purchase-orders/request-approval-status"}
+    request:
+      location: JSON body
+      fields: [moduleId (null), subModuleId, approverId, approverUserName, activityId (=PO id), approveStatus, remarks]
+    response_used: none
+  audit_trail:
+    endpoint: {method: GET, path: "/api/purchase-orders/approval-log/{id}"}
+    response_used: "approval history shown on a detail-page tab"
+  dead_alternative: "PO's service also defines a full copy of the two-step margin/doc pattern (purchaseorderrequestapproval, purchaseorderdocapproval, getpurchaseorderdocrequestapproval, plus a doc-audit read via /api/purchase-order-doc-apprs) -- confirmed zero callers anywhere, including spare-po's identically copy-pasted duplicates. Leftover scaffolding from the shared pattern that was never activated for PO; the single-step request-approval-status endpoint above is the only approval mechanism actually wired to the UI."
+  backward_link: "n/a -- approval mutates the PO's own status field"
+
+# ============================================================================
+# PIPELINE GRAPH — at a glance
+# ============================================================================
+graph:
+  sales_order:
+    module_ownership: SALES
+    edges_out: [purchase_order]
+    note: "fully documented in flow/sales-flow.yml (purchase_order_normal + purchase_order_buyback edges) -- only the inbound pull into PO is repeated here for graph completeness. Both conversions are fire-and-forget (response_used: none) from the SO side, so SO cannot trace forward to the PO it created in the frontend code."
+  purchase_order:
+    fed_by: [sales_order]
+    edges_out: [inventory_grn, purchase_bill, payable]
+    note: "PO->inventory_grn is fully documented in flow/inventory-flow.yml; only PO->purchase_bill (direct) and PO->payable (new finding) are documented in full here"
+  inventory_grn:
+    module_ownership: INVENTORY
+    fed_by: [purchase_order]
+    edges_out: [purchase_bill]
+    note: "fully documented in flow/inventory-flow.yml -- not re-documented here"
+  purchase_bill:
+    fed_by: [inventory_grn, purchase_order]
+    edges_out: [inventory_sr, payable, debit_note]
+    note: "PB<-inventory_grn and PB->inventory_sr are fully documented in flow/inventory-flow.yml; PB<-purchase_order (direct), PB->payable, and PB->debit_note (all new findings) are documented in full here"
+  inventory_sr:
+    module_ownership: INVENTORY
+    aka: "RMA"
+    fed_by: [purchase_bill]
+    note: "fully documented in flow/inventory-flow.yml -- not re-documented here"
+  payable:
+    module_ownership: FINANCE
+    fed_by: [purchase_order, purchase_bill]
+    note: "accounts-payable/vendor-payment entity -- new finding this pass, not documented anywhere else. Mirrors how Invoice/Billing feed Payment/Credit-Note on the Sales side."
+  debit_note:
+    module_ownership: FINANCE
+    fed_by: [purchase_bill]
+    note: "vendor-side equivalent of Sales module's Credit Note -- new finding this pass"
+  supplierinvn:
+    role: "supplier/vendor account master data -- referenced by PO/PB as the supplier picklist; no workflow/approval of its own"
+  supplier_doc_type:
+    role: "doc-type lookup master data, referenced by PO's supplierDocType field. Also unexpectedly hosts the supplier-name-search endpoint both PO and PB use for their supplier autocomplete (/api/supplier-doc-types/searchsuppliers) -- a naming quirk, not a functional issue."
+
+# ============================================================================
+# ASCII TREE -- same ├──/└──/│ style as _logs/change.log, immediate mental map,
+# no renderer needed
+# ============================================================================
+ascii_tree: |
+  Sales Order   (documented fully in flow/sales-flow.yml)
+  └── SO -> PO (normal or buy-back)
+      └── Purchase Order
+          ├── approval: single-step request-approval-status  (NOT the 2-step family PB uses below)
+          ├── cancel: GET /api/purchase-orders/cancelpo
+          ├── PO -> Inventory GRN   [full detail in flow/inventory-flow.yml]
+          │   └── Inventory GRN -> Purchase Bill   [full detail in flow/inventory-flow.yml]
+          ├── PO -> Purchase Bill DIRECT (bypasses GRN entirely)  [GET po-pb/{id}, no isGrn flag]
+          │   └── strongest backward-link in this whole pipeline: typed purchaseOrder FK on the PB header
+          └── PO -> Payable  (Supplier Advance reference)  [GET po-reference]
+
+  Purchase Bill   (fed by: Inventory GRN, OR directly from Purchase Order above)
+  ├── approval: full 2-step margin/doc cycle  (shared family with Quote/SO/Billing/Inventory-DC)
+  ├── cancel: NONE -- confirmed, no cancel mechanism exists anywhere for PB
+  ├── PB -> Inventory SR / RMA  (Purchase Return)   [full detail in flow/inventory-flow.yml]
+  ├── PB -> Payable  (Bill Payment reference)  [GET by-account-get-pb]
+  └── PB -> Debit Note  (vendor-side equivalent of Sales' Credit Note)  [same by-account-get-pb lookup, reused]
+
+  DEAD SCAFFOLDING (confirmed unrouted, not real edges)
+  ├── map-purchase-order-sales-order-buyback / -products   (looked like the PO-side half of SO's conversions, never wired)
+  ├── PO's own copy of the 2-step margin/doc approval pattern   (dead; the single-step endpoint above is the only one wired to the UI)
+  └── every purchase-order-*/purchase-bill-* address/appr/asgn-to sibling entity   (dead CRUD scaffolds; real data handled inline in PO/PB's own components)
+
+# ============================================================================
+# STAGE — PURCHASE ORDER (fed by Sales Order; converts OUT to GRN, PB, Payable)
+# ============================================================================
+purchase_order:
+  inbound_conversion:
+    why: "Sales needs to procure stock to fulfil an order (normal PO) or process a trade-in (buy-back PO) -- both originate from a Sales Order"
+    from: sales_order
+    note: "fully documented in flow/sales-flow.yml as purchase_order_normal / purchase_order_buyback -- not re-documented here"
+    dead_po_side_scaffolding: "map-purchase-order-sales-order-buyback and map-purchase-order-sales-order-products look like they should be the PO-side counterpart of these SO conversions, but are 100% unrouted (commented out in entity-routing.module.ts) and zero call sites reference their services/models anywhere outside their own folder. The real buy-back/normal-conversion payloads are built and sent entirely from the Sales-Order side (map-sales-order-buyback, map-sales-order-products) -- these two PO-side entities were scaffolded to mirror them but never wired up. Not a real edge, just dead scaffolding."
+    backward_link: "not confirmed as a stored FK -- neither purchase-order.model.ts nor map-purchase-order-products.model.ts has any soid/soamdno field. A real query-time (not FK) trace DOES exist though: GET /api/purchase-orders/so-ref-items/{id}, called from the PO detail page's tab-switch handler, populates a 'SO reference' tab -- upgrades sales-flow.yml's 'backward_link: not confirmed' to confirmed-queryable, though still not a typed model field."
+
+  create_update:
+    endpoint: {method: "POST /api/purchase-orders/createpurchaseorder (create) / PUT /api/purchase-orders/update/{id} (update)", note: "dedicated action paths, not REST-standard /{id}"}
+    unused_endpoint: "PATCH /api/purchase-orders/{id} (partial update) exists in the service but has zero callers"
+    request: {location: JSON body, fields: "whole PO incl. mapPurchaseOrderProducts + mapPurchaseOrderAddlCharges arrays"}
+    response_used: none
+
+  approval: *purchase_order_approval
+  approval_note: "PO uses a single-step decision (request-approval-status), NOT the two-step margin/doc cycle that Purchase Bill (below), Quote, Sales-Order, Billing, and Inventory-DC all share -- an inconsistency worth knowing, same as inventory-flow.yml's GRN-vs-DC approval asymmetry finding"
+
+  cancel:
+    endpoint: {method: GET, path: "/api/purchase-orders/cancelpo", query: [poId, cancelationRemarks]}
+    note: "invoked from the list page's cancel dialog"
+    dead_alternative: "POST /api/purchase-orders/cancelpurchaseorders exists in the service with zero call sites anywhere -- a second, unused cancel implementation on the same service, same 'two implementations, only one used' pattern inventory-flow.yml found for spare-dc"
+
+  line_cancellation:
+    why: "lets a user partially-cancel remaining qty on a single PO line without cancelling the whole PO"
+    endpoint: {method: POST, path: "/api/purchase-orders/cancel-items"}
+    request: {location: JSON body, fields: [poProductId, cancelationRemarks, cancelQty, "status: 0"]}
+    client_validation: "cancelQty must be <= the line's server-computed cancelableQty"
+    audit: {endpoint: {method: GET, path: "/api/purchase-orders/cancelled-items/{id}"}, note: "read-only list of cancelled line items, shown on a detail-page tab"}
+
+  activity_log:
+    note: "PO has a comments/activity side-channel (same generic accountsService.submodulepath('ppo', ...) mechanism GRN uses with 'igrn') -- not a conversion edge, just an audit/notes trail attached to the record"
+
+  line_item_variants:
+    note: "map-purchase-order-products has NO qtyreference field at all -- unlike GRN, PO lines carry no batch/serial tracking. Instead, server-computed progress flags not present on the typed model (isConvertedToBill, cancelableQty, pbQty, receivedQty, pendingQty) track partial-billing/partial-receipt progress per line, functionally standing in for what batch/serial tracking does for GRN -- these gate the cancel-qty dialog and drive the GRN/PB conversion 'pending' picker."
+
+  addl_charges:
+    note: "map-purchase-order-addl-charges drives real computation, not decorative -- computeAddlChargesTotals() sums each row's amount into addlChargesTotalAmt, folded into the PO grand total alongside the product-line totals"
+
+  terms:
+    note: "termsConditions is a checkbox multi-select against a shared master TermsConditionsService list, sent/read as plain descriptive text on the PO itself -- no computation. map-purchase-order-terms' own dedicated CRUD entity folder is dead scaffolding, referenced only from entity-routing.module.ts."
+
+  dead_scaffolding:
+    - "map-purchase-order-sales-order-buyback, map-purchase-order-sales-order-products (see inbound_conversion above)"
+    - "purchase-order-appr, purchase-order-doc-appr, purchase-order-request-appr, purchase-order-asgn-to, purchase-order-bill-addr, purchase-order-ship-addr, purchase-order-supplier-addr -- each referenced only from its own folder + entity-routing.module.ts. Actual address/assignee data is read/written as plain nested object literals directly inside purchase-order-update.component.ts, never routed through these siblings' own CRUD services."
+    - "map-purchase-order-terms (own dedicated screen only -- underlying terms data is real, handled inline)"
+    - "GET /api/purchase-orders/mappoproductforpurchasebill/{id} (findByPoId) -- zero callers, superseded by the direct po-pb/{id} pull used by both GRN and the direct PB path below"
+    - "GET /api/purchase-orders/mappoproductforgrn/{id} (appPurchaseorder) -- zero callers (already known from flow/inventory-flow.yml, reconfirmed)"
+    - "GET /api/purchase-orders/getsoreferencedata/{productId} -- no PO update/detail call site found; likely dead or report-only"
+
+  edges:
+    - to: inventory_grn
+      module_ownership: INVENTORY
+      note: "fully documented in flow/inventory-flow.yml (GET /api/purchase-orders/po-pb/{id}?isGrn=true) -- not repeated in full here"
+    - to: purchase_bill
+      why: "lets a Purchase Bill be raised straight from a Purchase Order with no GRN/receiving step in between at all -- a direct alternative to the GRN->PB conversion path"
+      endpoint: {method: GET, path: "/api/purchase-orders/by-name-number", query: [searchKey], note: "PB-side supplier/PO search, driven from purchase-bill-update.component.ts"}
+      companion_pull:
+        endpoint: {method: GET, path: "/api/purchase-orders/po-pb/{id}", note: "same endpoint GRN uses, called here WITHOUT the isGrn flag -- pulls mapPurchaseOrderProducts + mapPurchaseOrderAddlCharges straight into the PB draft"}
+      response_used: "PO's pending products/addl-charges shown for selection into the new PB"
+      backward_link: "REAL and typed, stronger than the GRN-side link -- purchase-bill.model.ts has a genuine purchaseOrder field (id), echoed back by the server on edit-load. At line-item level, map-purchase-bill-products carries a typed mapPurchaseOrderProducts FK and map-purchase-bill-addl-charges carries a typed mapPurchaseOrderAddlCharges FK, both pointing at the specific source PO line/charge -- unlike the GRN link, which is request-only with no stored model field."
+    - to: payable
+      module_ownership: FINANCE
+      why: "a Supplier Advance payment references the PO it's an advance against"
+      endpoint: {method: GET, path: "/api/purchase-orders/po-reference", query: [searchKey]}
+      response_used: "mapPayablesPurchaseOrderDTOs rows ({id, poNumber, poNameAndNumber}), plus the Payable header's poid field"
+      backward_link: "Payable stores a header-level poid plus denormalized poNumber per row -- traceable by number, not a strict per-line FK"
+
+# ============================================================================
+# STAGE — PURCHASE BILL (fed by Inventory-GRN or Purchase Order; converts OUT
+# to Inventory-SR/RMA, Payable, Debit Note)
+# ============================================================================
+purchase_bill:
+  inbound_paths:
+    - source: inventory_grn
+      module_ownership: INVENTORY
+      why: "goods were received and verified via GRN -- convert that receiving record into the vendor-facing bill"
+      note: "fully documented in flow/inventory-flow.yml as the GRN->PB edge (POST /api/purchase-bills/convertgrntopb)"
+    - source: inventory_grn
+      variant: "companion pull, driven from the PB side"
+      endpoint: {method: POST, path: "/api/inventory-grns/getgrnstopd"}
+      request: {location: JSON body, fields: [accountId, selectedGrnIds]}
+      constraint: "all selected GRNs must share the same poId, enforced client-side"
+      processing: "purchaseOrder is set on the new PB purely from the picked GRNs' carried poId"
+      note: "second entry point into the same GRN->PB edge documented in flow/inventory-flow.yml"
+    - source: purchase_order
+      why: "NEW finding -- a Purchase Bill can be created directly from a Purchase Order with no GRN/receiving step at all"
+      note: "see purchase_order.edges above for full endpoint detail (by-name-number search + po-pb/{id} pull)"
+
+  create_update:
+    endpoint: {method: "POST /api/purchase-bills (create) / PUT /api/purchase-bills/updatePurchaseBill/{id} (update)", content_type: multipart/form-data}
+    unused_endpoint: "PATCH /api/purchase-bills/{id} (partial update) -- zero callers"
+    dead_alternative_create: "POST /api/purchase-bills/purchasebillsWithFiles exists in the service with no call site found -- real create is the plain multipart create() above"
+    request:
+      location: "multipart FormData -- 'purchaseBill' part is JSON.stringify(pb), 'files' parts are the raw selected attachments"
+      fields: "whole PB incl. mapPurchaseBillProducts + mapPurchaseBillAddlCharges arrays, purchaseOrder id, grnIds/grnNumbersToPBList (request-only, not a stored model field)"
+    response_used: none
+
+  approval: *purchase_bill_approval
+  approval_note: "PB runs the full two-step margin/doc cycle, unlike PO's single-step approval above -- same module, opposite governance between the two sibling entities, mirroring the GRN-vs-DC asymmetry flow/inventory-flow.yml already documented"
+
+  cancel: "none -- no cancel/close mechanism exists anywhere in purchase-bill's service, list, detail, or update code, unlike PO's cancelPo. Confirmed by exhaustive grep for 'cancel' across the whole entity."
+
+  docs:
+    entity: map-purchase-bill-docs
+    real_mechanism:
+      upload: "raw 'files' FormData field appended during save(), not a separate endpoint"
+      list: {method: GET, path: "/api/purchase-bills/getPurchaseBillDocs/{id}"}
+      delete: {method: DELETE, path: "/api/purchase-bills/deletePurchaseBillDocs/{id}/{isEdits}"}
+    causal_link: "uploading at least one file flips a server-side isDocument flag, which gates whether the doc-approval audit trail tab (purchase-bill-doc-appr) is fetched -- same causal relationship inventory-flow.yml documented between GRN/DC docs and inventory-dc-doc-appr"
+    dead_scaffolding: "map-purchase-bill-docs' own dedicated CRUD entity folder (list/detail/update/delete/service) is dead as a screen, referenced only from entity-routing.module.ts -- the real upload/list/delete above bypasses it entirely"
+
+  addl_charges:
+    note: "map-purchase-bill-addl-charges mirrors PO's shape and drives real computation -- detail component sums both products and addl-charges into totalBaseAmount/totalTaxAmount/totalAmount/grandTotal"
+
+  line_item_variants:
+    note: "map-purchase-bill-products has no qtyreference field either -- no batch/serial tracking on PB lines, same as PO"
+
+  dead_scaffolding:
+    - "purchase-bill-appr, purchase-bill-doc-appr (except its real audit_trail read, see approval above), purchase-bill-request-appr, purchase-bill-asgn-to, purchase-bill-bill-addr, purchase-bill-ship-addr -- each referenced only from its own folder + entity-routing.module.ts"
+    - "map-purchase-bill-docs (own dedicated screen only -- see docs above)"
+
+  edges:
+    - to: inventory_sr
+      module_ownership: INVENTORY
+      aka: "RMA"
+      note: "fully documented in flow/inventory-flow.yml as the Purchase Return inbound source (POST /api/inventory-rma/... , stores pbId/pbNumber/pbAmdNo) -- not repeated in full here"
+    - to: payable
+      module_ownership: FINANCE
+      why: "Bill Payment against an approved/outstanding Purchase Bill"
+      endpoint: {method: GET, path: "/api/purchase-bills/by-account-get-pb", query: [searchKey]}
+      response_used: "approved PBs for the supplier, filtered to pbAmt > 0.01, shown as mapPayablesPurchaseBillDTOs rows ({pbNumber, pbDate, poNumber, pbAmt, pbDueDate, pendingAmt, taxAmt, receivedAmt})"
+      backward_link: "Payable stores a header-level purchaseBillId plus denormalized pbNumber per row -- traceable by number, not a strict per-line FK"
+    - to: debit_note
+      module_ownership: FINANCE
+      why: "vendor-side equivalent of Sales' Credit Note -- records a debit against a supplier tied to a specific bill"
+      endpoint: "same by-account-get-pb lookup used by Payable above, confirmed reused verbatim from the Debit Note detail component"
+      response_used: none
+      backward_link: "real -- debit note stores purchasebillid (object or bare id) referencing the source PB"
+  dead_edge:
+    to: nothing
+    note: "no cancel-driven or stock-adjustment-driven conversion exists for PB (contrast with flow/inventory-flow.yml's dead convertstockAdjustmenttopb edge) -- not applicable to this entity"
+
+# ============================================================================
+# CONFIRMED OUT OF SCOPE / MASTER DATA (checked so it doesn't need re-checking)
+# ============================================================================
+master_data:
+  - entity: supplierinvn
+    finding: "supplier/vendor account master (accountcode, accountName, industryType, accCategory, addresses) -- same shape family as the generic Accounts entity. Plain CRUD, used as the suppliers picklist on PO/PB."
+  - entity: supplier-doc-type
+    finding: "plain doc-type lookup (name, ispredefined, isactive), used as PO's supplierDocType field. Also unexpectedly hosts /api/supplier-doc-types/searchsuppliers, the supplier-name-search endpoint both PO and PB use for their supplier autocomplete -- naming quirk, not a functional issue."
+  - entity: purchase-report
+    finding: "confirmed pure navigation shell -- its own component has an empty ngOnInit and no logic; it's a 4-tile menu linking to the real report components (purchaseorder-report, purchaseorder-detailed-report, purchasebill-report, purchasebill-detailed-report), which are themselves 100% read-only (GET with query-string filters only, zero mutating calls)."
+
+# ============================================================================
+# NOTES worth knowing at a glance
+# ============================================================================
+notes:
+  - "Purchase Order and Purchase Bill run DIFFERENT approval mechanisms despite being sibling entities in the same module: PO uses a single-step request-approval-status decision, PB uses the full two-step margin/doc cycle shared with Quote/Sales-Order/Billing/Inventory-DC. PO's service even carries a complete, dead, copy-pasted version of the two-step pattern that was never wired to its UI -- worth confirming with the business owner whether PO was deliberately simplified or just never finished."
+  - "map-purchase-order-sales-order-buyback and map-purchase-order-sales-order-products look like the PO-side half of Sales' buy-back/normal PO conversions but are entirely dead: routes commented out, zero external references. The real conversions are fire-and-forget from the Sales Order side (documented in flow/sales-flow.yml) and store their line data through map-sales-order-buyback / map-sales-order-products instead -- these PO-side entities were scaffolded to mirror them but never activated."
+  - "A Purchase Bill can be created three ways, not just the one flow/inventory-flow.yml documented: (1) convert an existing GRN, (2) search-and-pull an existing GRN's lines from the PB side, or (3) pull directly from a Purchase Order with NO GRN in between at all. The direct PO->PB link is also the strongest backward-link found in this whole pipeline -- typed purchaseOrder field on the PB header, typed mapPurchaseOrderProducts/mapPurchaseOrderAddlCharges FKs at line level -- stronger than the GRN link, which is request-only with no stored model field."
+  - "Purchase Order and Purchase Bill both feed the Finance module, not just Inventory: PO feeds Payable as a Supplier Advance reference, PB feeds Payable as a Bill Payment reference AND feeds Debit Note (the vendor-side mirror of Sales' Credit Note). This is a real, previously-undocumented third destination for the pipeline beyond GRN and RMA."
+  - "Every purchase-order-*/purchase-bill-* sibling CRUD entity checked (appr, doc-appr, request-appr, asgn-to, bill-addr, ship-addr, supplier-addr) is dead scaffolding exactly like flow/inventory-flow.yml found for GRN/DC's address entities -- referenced only from entity-routing.module.ts, with the real address/assignee/approval data handled inline inside PO/PB's own update/detail components or service methods instead."
+  - "PB's docs sub-entity (map-purchase-bill-docs) is dead as a dedicated CRUD screen, but the underlying file-upload feature is real -- handled via a raw multipart 'files' field on save() plus dedicated getPurchaseBillDocs/deletePurchaseBillDocs endpoints. This mirrors the same pattern flow/inventory-flow.yml found: the sibling entity's own screen is scaffolding, but the feature it represents is genuinely wired in through the parent entity instead."
+  - "Both PO and PB carry at least one 'two implementations, only one used' pair: PO has cancelpo (real) vs cancelpurchaseorders (dead); PB has plain multipart create() (real) vs purchasebillsWithFiles (dead) -- same pattern flow/inventory-flow.yml found for spare-dc's two cancel endpoints."
+
+# ============================================================================
+# REVISION LOG
+# ============================================================================
+changelog:
+  - "rev 1 (2026-07-03): initial pass, derived from a dedicated read-only research pass over purchase-order, purchase-bill, and all their map-*/sibling-CRUD entities, cross-referenced against flow/inventory-flow.yml (PO->GRN, GRN->PB, PB->RMA) and flow/sales-flow.yml (SO->PO normal + buyback) to avoid re-documenting already-covered edges. New findings not present in either sibling file: PO->PB direct path (bypassing GRN, with a stronger typed backward-link than the GRN path), PO->Payable (Supplier Advance) and PB->Payable (Bill Payment) and PB->Debit Note edges into the Finance module, PO's single-step approval mechanism (distinct from the two-step family PB shares with Quote/SO/Billing/Inventory-DC), and confirmation that map-purchase-order-sales-order-buyback/products are dead unrouted scaffolding rather than a real PO-side conversion path."

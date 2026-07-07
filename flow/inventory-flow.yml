@@ -1,0 +1,348 @@
+# INVENTORY PIPELINE — flow-centric, endpoint-level contract map
+# updated: 2026-07-03 (rev 2 — independently re-verified line-by-line, see changelog at EOF)
+# Scope: purchase-order -> inventory-grn -> purchase-bill (cross-module both ends)
+#        sales-order -> inventory-dc -> invoice (cross-module both ends)
+#        inventory-stockAdjustment (standalone, no conversions)
+#        inventory-sr/RMA (fed by invoice/purchase-bill/dc/billing; converts OUT to grn + dc)
+#        spare-dc / spare-stockAdjustment (parallel spares-side entities, own resourceUrls)
+# Source of truth: actual Angular request-building code (real client contract).
+# NOT independently verified against live server responses this pass (no live-API tool
+# used this session) -- "response_used" lists ONLY fields the frontend code actually
+# reads back; it is not a full server response schema.
+# No file/method names below by design -- this is a data-contract view, not a code map.
+# Cross-references flow/sales-flow.yml for the Sales-owned entities named here
+# (purchase-order, sales-order, invoice) -- those are NOT re-documented in full, only
+# the specific inbound/outbound edges touching Inventory are covered.
+# Every edge carries: why (business reason) and backward_link (target -> source traceable?).
+
+# ============================================================================
+# REUSABLE PATTERN — Inventory DC uses the same margin/doc two-step approval
+# cycle as Quote/Sales-Order/Billing/Estimation (see flow/sales-flow.yml's
+# approval_cycle anchor for the general shape). Concrete endpoints repeated
+# here since anchors don't carry across files. Query param names verified
+# verbatim against the service code (rev 2).
+# ============================================================================
+inventory_dc_approval: &inventory_dc_approval
+  why: "gates DC creation/edit the same way quotes/sales-orders/billing are gated -- a manager must sign off on margin and/or supporting documents before the delivery paperwork is final"
+  step_1_request_approval:
+    endpoint: {method: POST, path: "/api/inventory-dcs/inventorymarginrequestapproval"}
+    request: {location: query params, fields: [inventoryId, remarks, isDraft]}
+    response_used: none
+  step_1b_check_pending:
+    endpoint: {method: GET, path: "/api/inventory-dcs/getinventorydcsdocrequestapproval"}
+    request: {location: query params, fields: [inventoryDcId, subModulePath]}
+    response_used: "pending-approval state, drives which buttons the detail page shows"
+  step_2_decide:
+    endpoint: {method: POST, path: "/api/inventory-dcs/inventorydocapproval"}
+    request:
+      location: query params
+      fields: [inventoryId, isApproveReject ("approve" | "reject"), modulePath, remarks, inventoryReqApproval (nullable), isDraft, isEditDraftApprove]
+    response_used: none
+  audit_trail:
+    endpoint: {method: GET, path: "/api/inventory-dc-doc-apprs?dcidId.equals={id}"}
+    note: "read-only audit log -- the only real usage of the inventory-dc-doc-appr sibling entity; inventory-dc-appr and inventory-dc-rqst-appr sibling entities are unreferenced CRUD scaffolds, not wired into this flow"
+  backward_link: "n/a -- approval mutates the DC's own status field"
+  spares_variant: "spare-dc runs the identical 3-step cycle under /api/spares-dcs/... instead of /api/inventory-dcs/... -- same param names, separate URL namespace"
+
+# ============================================================================
+# PIPELINE GRAPH — at a glance
+# ============================================================================
+graph:
+  purchase_order:
+    module_ownership: PURCHASE
+    edges_out: [inventory_grn]
+    note: "not re-documented here -- see Purchase module (out of scope this pass); only the inbound pull into GRN is covered below"
+  sales_order:
+    module_ownership: SALES
+    edges_out: [inventory_dc]
+    note: "fully documented in flow/sales-flow.yml -- only the inbound pull into DC is repeated here for graph completeness"
+  billing:
+    module_ownership: SALES
+    edges_out: [inventory_sr]
+    note: "new edge found in rev 2, not previously documented anywhere: RMA's Sales-Return type can source from Billing instead of Invoice (see inventory_sr below)"
+  inventory_grn:
+    approval_gated: false
+    fed_by: [purchase_order, inventory_sr]
+    edges_out: [purchase_bill]
+    note: "no margin/doc approval cycle exists for GRN at all -- contrast with inventory_dc below, which is fully approval-gated. Also fed by RMA's rma-to-grn conversion (rev 2 finding) -- a return can generate a new GRN, i.e. put returned stock back into inventory as a fresh receipt."
+  inventory_dc:
+    approval_gated: true
+    fed_by: [sales_order, inventory_sr]
+    edges_out: [invoice]
+    note: "CORRECTS flow/sales-flow.yml, which states 'Invoice does NOT read from any DC' -- that line is only true for the Sales pipeline's own SO->Invoice edge. Inventory DC has its own, separate, real DC->Invoice conversion (see edge below), AND Invoice's own model carries a dcid field confirming the reverse pointer. Two independent UI paths can each create an Invoice. Also fed by RMA's rma-to-dc conversion (rev 2 finding)."
+  inventory_stockAdjustment:
+    approval_gated: false
+    edges_out: []
+    note: "a GRN/StockAdjustment-to-PurchaseBill helper method exists in the service, but its only call sites are commented out client-side -- dead edge, not counted as real"
+  inventory_sr:
+    aka: "RMA (Return Material Authorization) -- folder/route name 'SR' is misleading, actual resource URL and page labels all say RMA"
+    fed_by: [invoice, purchase_bill, inventory_dc, billing]
+    edges_out: [inventory_grn, inventory_dc]
+    note: "REVISED in rev 2 -- this is NOT a pull-only terminal node as first drafted. RMA has two real, wired outbound conversions (to GRN and to DC) plus its own approval-status endpoint. It sits in the MIDDLE of the graph, not at the end."
+  purchase_bill:
+    module_ownership: PURCHASE
+    fed_by: [inventory_grn]
+    edges_out: [inventory_sr]
+    note: "not re-documented here (owned by Purchase module) -- only the inbound edge from GRN and the outbound feed into RMA are covered. Backward-link confirmed real at API level (see inventory_grn's edge below) though not as a typed model field."
+  invoice:
+    module_ownership: SALES
+    fed_by: ["sales_order (see flow/sales-flow.yml)", inventory_dc]
+    edges_out: [inventory_sr]
+  stores:
+    role: "warehouse/location master data -- referenced by GRN/DC/StockAdjustment as a picklist plus a live on-hand-qty lookup; no workflow/approval of its own"
+  spares_parallel:
+    entities: [spare-dc, spare-stockAdjustment]
+    note: "near-duplicate parallel structures to inventory-dc / inventory-stockAdjustment for spares-side stock. spare-dc's real resourceUrl is api/spares-dcs (corrected in rev 2 -- rev 1 guessed a placeholder name); it runs the same 3-step approval and the same DC->Invoice conversion (GET api/spares-dcs/mapdcsproductforinvoice/{id}, POST api/spares-dcs/convert-dc-to-inv) plus its own real cancel (POST api/spares-dcs/closed/{id}) and one dead never-called cancel-sdc GET endpoint. Only its SalesOrderService import is dead/unused -- the entity itself is not inert. spare-stockAdjustment (api/spares-sa) DOES have a real cancel (GET api/spares-sa/cancel-ssa?sparesSaId&cancelRemarks) -- CORRECTS rev 1, which wrongly claimed neither stock-adjustment variant has a cancel. inventory-stockAdjustment genuinely has none; this is an asymmetry between the two parallel entities, not a shared trait."
+
+# ============================================================================
+# ASCII TREE -- same ├──/└──/│ style as _logs/change.log, immediate mental map,
+# no renderer needed
+# ============================================================================
+ascii_tree: |
+  PURCHASE-SIDE RECEIVING
+  Purchase Order
+  └── PO -> GRN  [GET /api/purchase-orders/po-pb/{id}?isGrn=true]  (no approval gate at all)
+      └── Inventory GRN   (approval: none; cancel: none real, only hard delete)
+          ├── bulk-upload path also exists [POST /api/inventory-grns/bulk-upload]
+          └── GRN -> Purchase Bill  [POST /api/purchase-bills/convertgrntopb]
+              └── Purchase Bill   (Purchase module, full detail in flow/purchase-flow.yml)
+
+  SALES-SIDE DISPATCH
+  Sales Order
+  └── SO -> DC  [GET /api/sales-orders/mapsoproductforinventorydc/{id}]
+      └── Inventory DC   (approval: full margin/doc 2-step cycle; cancel: POST closed/{id})
+          └── DC -> Invoice  [GET mapdcsproductforinvoice/{id} + POST convert-dc-to-inv]
+              └── Invoice   (Sales module -- a 2nd, independent path into Invoice besides SO->Invoice directly)
+
+  RETURNS HUB -- Inventory SR / RMA (folder name says "SR", every URL/screen says "RMA")
+  ├── fed by (a return can originate from any of these 4):
+  │   ├── Invoice          (Sales Return)
+  │   ├── Billing          (Sales Return, alt source via srSourceType toggle)
+  │   ├── Purchase Bill    (Purchase Return)
+  │   └── Inventory DC     (DC Return)
+  ├── RMA -> GRN  [POST /api/inventory-rma/rma-to-grn]  -- returned stock re-received as a fresh GRN
+  └── RMA -> DC   [POST /api/inventory-rma/rma-to-dc]   -- triggers a replacement/re-dispatch
+
+  STANDALONE -- no conversions in or out
+  └── Inventory Stock Adjustment   (approval: none; cancel: none; PB-conversion method exists but disabled at every call site)
+
+  SPARES PARALLEL (own resourceUrls, same shape, full detail in flow/dispatch-quantity-flow.yml)
+  ├── Spare-DC                mirrors Inventory DC          (api/spares-dcs)
+  └── Spare Stock Adjustment  mirrors Inventory Stock Adjustment (api/spares-sa -- unlike its counterpart here, DOES have a real cancel)
+
+# ============================================================================
+# STAGE — INVENTORY GRN (Goods Receipt Note; fed by Purchase Order or RMA)
+# ============================================================================
+inventory_grn:
+  inbound_conversion:
+    why: "goods physically arrived from a supplier against an existing Purchase Order -- GRN is the receiving paperwork that records what actually showed up, which may differ from what was ordered"
+    from: purchase_order
+    optional: true  # a GRN can also be created with no PO at all (poid is a nullable field, confirmed in the model) -- pure manual entry, e.g. unplanned/direct receipts
+    endpoint: {method: GET, path: "/api/purchase-orders/po-pb/{id}", query: "isGrn=true"}
+    request: {location: path param + query flag, fields: {id: "purchase order id, user-picked from a dropdown"}}
+    response_used: "mapPurchaseOrderProducts (line items) shown in a picker dialog; user checks which lines/qty to actually receive"
+    processing: >
+      on confirm, copies supplier (leadacccon), contacts, supplierDocType, supplierdocno,
+      assignall/assignUsers, wareHouse (auto-set from the PO's stores field, not
+      re-picked), and the PO's billing address block onto the new GRN header.
+      Each selected PO line becomes a GRN product row carrying products, productinfo,
+      stores, productUom, stockIn/receivedqtyDisable flags, orderedqty = the PO's
+      sentqty, qtyreference (tracking type), and mappurchaseorderproductsids
+      pointing back at the source PO line.
+    second_inbound_source:
+      from: inventory_sr
+      why: "a Purchase-Return or other RMA can generate a fresh GRN to put the returned stock back into receiving -- confirmed rev 2, not previously documented"
+      endpoint: {method: POST, path: "/api/inventory-rma/rma-to-grn"}
+      backward_link: "not itemized this pass -- confirmed wired and callable, exact request/response shape not captured"
+    dead_alternative: "a second PurchaseOrderService method hits GET /api/purchase-orders/mappoproductforgrn/{purchaseOrderId} but has zero callers anywhere in the repo (including spare-po, which keeps its own unused copy of the same dead pattern) -- not a real second path"
+    backward_link: "REAL and permanent, at the line-item level -- every GRN product row stores mappurchaseorderproductsids referencing its source PO line. There is no equivalent flag/pointer on the PO header itself (e.g. no 'grnCreated' status), so tracing PO -> its GRNs means searching GRN by that field instead"
+
+  create_update:
+    endpoint: {method: "POST (create) / PUT (update)", path: "/api/inventory-grns[/{id}]"}
+    unused_endpoint: "PATCH /api/inventory-grns/{id} (partial update) exists in the service but has zero callers -- save() only ever calls create or update"
+    request: {location: JSON body, fields: "whole GRN incl. mapInventoryGrnProducts array; isactive/isdeleted defaulted client-side"}
+    response_used: none
+    processing: "on success, just navigates away -- does not write anything back onto the source Purchase Order (no PO status/pending-qty patch), unlike Quote->SO's soNo patch pattern in the Sales pipeline"
+
+  bulk_import:
+    endpoint: {method: POST, path: "/api/inventory-grns/bulk-upload", content_type: multipart/form-data}
+    note: "a separate bulk GRN import path exists alongside the normal single-record create flow -- not previously documented"
+
+  activity_log:
+    note: "GRN has a comments/activity side-channel (linkActivities('igrn') + a salesActivity create call from both detail and update screens) -- not a conversion edge, just an audit/notes trail attached to the record"
+
+  line_item_variants:
+    note: "each product row carries qtyreference copied from the product master; this decides which sub-entity captures the line. Confirmed no 4th/other value is handled anywhere in the templates."
+    plain: "any other qtyreference value -- just a receivedqty is entered directly on map-inventory-grn-products"
+    serial_tracked: {qtyreference: 2, sub_entity: map-inventory-grn-products-serial-no, field: productserialno}
+    batch_tracked: {qtyreference: 3, sub_entity: map-inventory-grn-products-batch, fields: [batchreferenceno, batchmanufacturedate, batchexpirydate, receivedqty]}
+
+  approval: "none -- no margin/doc approval endpoints exist for GRN anywhere in its service or components (confirmed by grep, and by GRN never touching the approval service Purchase Order itself uses); it saves directly as active"
+  cancel: "none real -- the only 'cancel' button in the GRN detail page just closes a client-side convert-dialog (visiblePBconvert = false) with no API call. The only true state-changing actions are the PB conversion below, line-level child-row deletes (serial/batch/product removal), and a hard DELETE /api/inventory-grns/{id} (used by the delete dialog) -- there is no soft-cancel/status flow like Sales Order's PUT cancel/{id}"
+
+  edges:
+    - to: purchase_bill
+      module_ownership: PURCHASE
+      why: "once goods are received and verified, the supplier needs to be paid -- this converts the GRN into the vendor-facing bill"
+      endpoint: {method: POST, path: /api/purchase-bills/convertgrntopb}
+      request:
+        location: JSON body
+        fields: [grnId, grnNumber, paymentTermsId (user-picked), paymentTerms (name, denormalized alongside the id), termsOfDeliveryId, termsOfDelivery (name), defaultWarehouse, assignAll, assignedTo]
+      companion_pull:
+        why: "Purchase Bill can also be built by searching for and pulling an existing GRN's line items, the same manual-alternative-path pattern documented for SO->Invoice in flow/sales-flow.yml"
+        endpoint: {method: POST, path: "/api/inventory-grns/getgrnstopd"}
+        note: "driven from the Purchase Bill side (purchase-bill-update component calls it), not from GRN's own UI -- same underlying edge, second entry point"
+      pb_side_lookups:
+        - "GET /api/purchase-bills/getgrnref/{purchaseBillId} -- PB detail screen actively looks up its source GRN reference"
+        - "PB list is filterable by grnNumber.contains"
+        - "GET /api/inventory-grns/searchforpbcnv -- PB creation searches GRNs by keyword to pull from"
+      response_used: none
+      backward_link: "CONFIRMED real at the API/query level (upgraded from 'not confirmed' in rev 1) -- Purchase Bill exposes a dedicated GRN-reference lookup and is searchable/filterable by GRN number. Caveat: purchase-bill.model.ts itself has no typed grnId/grnNumber property, so the link is a live query-time join, not a stored foreign-key field on the model (Purchase module documented separately, this is as far as verification went from the Inventory side)"
+
+# ============================================================================
+# STAGE — INVENTORY DC (Delivery Challan; fed by Sales Order or RMA)
+# ============================================================================
+inventory_dc:
+  inbound_conversion:
+    why: "goods physically need to leave the warehouse and ship to the customer -- dispatch/delivery paperwork, independent of invoicing timing"
+    from: sales_order
+    endpoint: {method: GET, path: "/api/sales-orders/mapsoproductforinventorydc/{salesOrderId}"}
+    request: {location: path param, fields: {salesOrderId: number}}
+    response_used: "mapSalesOrderProductsList shown in a picker dialog; user checks lines and edits sentqty per line"
+    processing: >
+      copies leadacccon, contacts, assignall/assignUsers, isExistingAccount/existaccounts,
+      billing address (address/pincode/city/gstno) and shipping address
+      (address/pincode/city/gstno/contact name+no) from the SO onto the new DC header
+      (all read-only copies, not re-entered). Checked/edited lines become
+      mapInventoryDcProducts, each carrying mapsalesorderproductsids, products,
+      productinfo, productUom, stores, stockIn, sentqty, rateperqty, qtyreference.
+    second_inbound_source:
+      from: inventory_sr
+      why: "a DC-Return RMA can generate a fresh outbound DC (e.g. re-dispatching a replacement) -- confirmed rev 2, not previously documented"
+      endpoint: {method: POST, path: "/api/inventory-rma/rma-to-dc"}
+      backward_link: "not itemized this pass -- confirmed wired and callable, exact request/response shape not captured"
+    backward_link: "forward pointer only -- DC stores soid referencing its source Sales Order, cleared to null specifically when the value is missing, is a raw string, or is an object without an id (i.e. not a real persisted SO reference). The SO carries no reverse 'dcCreated' flag -- link is one-directional/audit-only, matching what flow/sales-flow.yml already documented from the Sales side"
+
+  create_update:
+    endpoint: {method: "POST (create) / PUT (update) / PATCH (partial)", path: "/api/inventory-dcs[/{id}]"}
+    request: {location: JSON body, fields: "billing/shipping/dispatch address sub-objects (user-picked from address pickers) + mapInventoryDcProducts (store/UOM/qty per line, user-entered)"}
+    response_used: none
+
+  approval: *inventory_dc_approval
+  approval_note: "fully approval-gated, unlike GRN above -- an inconsistency worth knowing: two inbound-conversion Inventory documents (GRN from PO, DC from SO) have opposite approval requirements"
+  cancel:
+    endpoint: {method: POST, path: "/api/inventory-dcs/closed/{inventoryDcId}"}
+    request: {location: path param, fields: {inventoryDcId: number}, body: empty}
+    response_used: none
+    processing: "marks the DC closed/cancelled; invoked from the list page's Cancel DC dialog"
+
+  e_way_bill: "DC only has a manual free-text ewaybillno field (report/filter use) -- no generation endpoint of its own. E-way-bill/e-invoice GENERATION only exists on Invoice/Billing (see flow/sales-flow.yml); a DC only gets one after it's converted to an Invoice."
+
+  line_item_variants:
+    note: "batch/serial DC lines don't originate fresh -- they link back to lots already sitting in a store, sourced from EITHER a prior GRN receipt or a prior Stock Adjustment"
+    lookup_endpoints:
+      batch: {method: GET, path: "/api/inventory-dcs/getproductbatchfordc", query: [productsId, storesId]}
+      serial: {method: GET, path: "/api/inventory-dcs/allproductserialnofordc", query: [productsId, storesId]}
+    origin_discriminator: "each returned batch row is checked via `mapInventoryGrnProductsBatch?.ignames != null` -- non-null means the lot originated from a GRN, otherwise it's tagged as sourced from a Stock Adjustment (mapInventorySaProductsBatch)"
+    dead_scaffold: "map-inv-dc-prod-direct-inv-grn-prod (name suggests a direct GRN-to-DC bypass of general stores) is confirmed NOT wired up -- its route is commented out in entity-routing.module.ts and no component outside its own CRUD folder uses its service/model. Two dead navigation links (routerLinks pointing at the disabled route) exist in map-inventory-grn-products and map-inventory-dc-products-direct list screens, but they lead nowhere. There is no 'skip the warehouse' fast path; all DC batch/serial stock is modeled as already sitting in a store, tagged with its GRN-or-SA origin."
+
+  edges:
+    - to: invoice
+      module_ownership: SALES
+      why: "lets goods that have already been dispatched (DC exists) be billed directly from the delivery record, without needing to re-open the originating Sales Order -- a second, independent path to the same Invoice entity that flow/sales-flow.yml's SO->Invoice edge also reaches"
+      endpoint:
+        pull: {method: GET, path: "/api/inventory-dcs/mapdcsproductforinvoice/{dcId}"}
+        submit: {method: POST, path: /api/inventory-dcs/convert-dc-to-inv}
+      request:
+        location: JSON body (submit step)
+        fields: [invoiceType (user-picked), salesOfficer, dcId, mapInventoryDcProducts (user-selected/edited rows from the pull step, pendingQty = sentqty)]
+      response_used: none
+      processing: "creates a new Invoice record directly from the DC's line items"
+      backward_link: "CONFIRMED real (upgraded from 'not confirmed' in rev 1) -- invoice.model.ts declares a dcid field, matching the dcId sent in the conversion request. Invoice can trace back to its originating DC the same way it traces back to soamdno/soid for the SO path."
+  no_other_outbound_edges: "confirmed -- convert-dc-to-inv is the only outbound conversion method in the DC service; DC does not feed anything besides Invoice (and, per graph note, is itself fed by both Sales Order and RMA)"
+
+# ============================================================================
+# STAGE — STOCK ADJUSTMENT (standalone; no upstream/downstream conversions)
+# ============================================================================
+inventory_stockAdjustment:
+  why: "corrects on-hand stock counts for reasons outside the normal receive/dispatch flow -- damage, audit correction, opening balance, etc."
+  create_update:
+    endpoint: {method: "POST (create) / PUT (update) / PATCH (partial)", path: "/api/inventory-sa[/{id}]"}
+    request:
+      location: JSON body
+      header_fields: [wareHouse (user-picked), reason (user-picked lookup, not a hardcoded enum), contacts, sadate (user-entered)]
+      line_fields: [typeInDc ("increment" | "decrement", user-picked per row), stockqty (live-fetched current on-hand, read-only), adjustedqty/newstockqty (user-entered)]
+    computation: "adjustedqty = stockqty + newstockqty for increment, stockqty - newstockqty for decrement -- client blocks a decrement that would go below zero"
+    live_lookup: {method: GET, path: "/api/stores/getavailqty/{storesId}/{productsId}", why: "shows the user current on-hand qty for the picked store+product before they enter an adjustment"}
+  approval: "none"
+  cancel: "none -- plain CRUD entity with a hard delete, no status/cancel flow. NOTE: this is genuinely asymmetric with its spares counterpart below, not a shared trait (corrected in rev 2)."
+  dead_edge:
+    to: purchase_bill
+    endpoint: {method: POST, path: /api/purchase-bills/convertstockAdjustmenttopb}
+    note: "method exists in the service but every call site (both inventory- and spare-stockAdjustment detail components) is commented out -- disabled feature, not a real edge"
+  parallel_entity: "spare-stockAdjustment is a fully separate, independent entity (own resourceUrl api/spares-sa) for spare-parts stock -- same create/update/computation shape, no cross-calls between the two (aside from one unused leftover constant in EACH service still pointing at api/inventory-stockAdjustments/inv -- dead copy-paste artifact present on both sides, not an actual cross-call). UNLIKE inventory-stockAdjustment, spare-stockAdjustment DOES have a real cancel: GET /api/spares-sa/cancel-ssa?sparesSaId&cancelRemarks, wired from its list page's cancel dialog."
+
+# ============================================================================
+# STAGE — INVENTORY SR / RMA (fed by Invoice/PurchaseBill/DC/Billing; converts OUT to GRN + DC)
+# ============================================================================
+inventory_sr:
+  aka: "RMA (Return Material Authorization) -- resource URL is /api/inventory-rma and every route/page label says 'rma', despite the folder/entity name being 'inventory-sr'"
+  why: "records a return -- of goods sold, goods purchased, or a delivered shipment -- with a documented reason and a traceable source, AND can itself spin off a corrective GRN or replacement DC"
+  rma_types: {1: "Sales Return", 2: "Purchase Return", 3: "DC Return"}
+  note: "confirmed exactly these 3 types, no 4th type exists in the dropdown"
+  inbound_pulls:
+    - source: invoice
+      why: "customer is returning goods that were already billed"
+      backward_link: "stores invId, invNumber, invAmdNo referencing the source Invoice"
+    - source: billing
+      why: "same Sales-Return type can alternatively source from a Billing record instead of an Invoice, via an srSourceType toggle -- not previously documented (rev 2 finding)"
+      backward_link: "stores billingId, billingNumber, billing"
+    - source: purchase_bill
+      module_ownership: PURCHASE
+      why: "goods are being returned to a supplier after being billed"
+      backward_link: "stores pbId, pbNumber, pbAmdNo referencing the source Purchase Bill"
+    - source: inventory_dc
+      why: "a delivered shipment is being returned before/without an invoice existing yet"
+      backward_link: "stores dcId only -- no companion dcNumber field, unlike the invoice/billing/purchase-bill sources which each store both an id and a display number"
+  approval: "has its own request-approval-status endpoint (POST) -- an approval interaction exists on RMA that was not documented in rev 1; exact gating rules not itemized this pass"
+  edges:
+    - to: inventory_grn
+      why: "a Purchase Return (or other RMA) puts the returned stock back into the warehouse as a fresh receipt, reusing the normal GRN receiving process rather than a separate stock-in mechanism"
+      endpoint: {method: POST, path: "/api/inventory-rma/rma-to-grn"}
+      response_used: none
+      backward_link: "not itemized this pass -- confirmed wired and callable from the RMA detail screen, exact request/response field list not captured"
+    - to: inventory_dc
+      why: "a DC Return (or other RMA) can trigger a replacement/re-dispatch, reusing the normal DC process rather than a separate outbound mechanism"
+      endpoint: {method: POST, path: "/api/inventory-rma/rma-to-dc"}
+      response_used: none
+      backward_link: "not itemized this pass -- confirmed wired and callable from the RMA detail screen, exact request/response field list not captured"
+  corrects_rev1: "rev 1 of this doc described RMA as 'pull-only, does not itself convert into anything further' -- that was WRONG. RMA sits in the middle of the graph: it is fed by four upstream sources and itself feeds two downstream Inventory entities, closing a real return-to-stock loop that the first pass missed entirely."
+
+# ============================================================================
+# CONFIRMED OUT OF SCOPE / MASTER DATA (checked so it doesn't need re-checking)
+# ============================================================================
+master_data:
+  - entity: stores
+    finding: "plain warehouse/location master (name, address, gstno, pincode, cities) with standard CRUD -- no workflow, no approval. Referenced everywhere as a picklist and as the live getavailqty on-hand-quantity lookup."
+  - entity: "inventory-grn-addr, inventory-grn-asgn-to, inventory-dc-asgn-to, and the DC bill/ship/dispatch address sub-entities"
+    finding: "confirmed plain generated CRUD scaffolding only -- nothing beyond standard create/read/update/delete, no workflow logic of their own"
+
+# ============================================================================
+# NOTES worth knowing at a glance
+# ============================================================================
+notes:
+  - "GRN (inbound, from Purchase Order) has NO approval cycle at all, while DC (outbound, from Sales Order) is FULLY approval-gated with the same margin/doc two-step as Quote/Sales-Order/Billing/Estimation. Same module, opposite governance -- worth confirming with the business owner whether that's intentional."
+  - "Inventory DC is NOT a terminal node the way flow/sales-flow.yml assumed when documenting it from the Sales side. It has its own real, independent DC->Invoice conversion, and Invoice's own model (dcid field) confirms the reverse pointer. An Invoice can originate from either the Sales Order directly (sales-flow.yml) OR from an Inventory DC -- two separate UI paths, same target entity."
+  - "RMA (inventory-sr) is the biggest correction in this revision: it is NOT a dead-end return record. It is fed by four sources (Invoice, Billing, Purchase Bill, Inventory DC) and itself converts into two Inventory entities (GRN and DC), plus has its own approval-status endpoint. This makes it a real hub in the middle of the Inventory graph, not a leaf."
+  - "map-inv-dc-prod-direct-inv-grn-prod looks like it would let stock move straight from a GRN into an outgoing DC, bypassing the warehouse -- it does not. Its route is commented out and nothing calls it, aside from two dead navigation links that lead to that disabled route. The real batch/serial DC lines still model stock as sitting in a store, just tagged with whether that stock's origin was a GRN or a Stock Adjustment."
+  - "Stock Adjustment is asymmetric between its two parallel entities: spare-stockAdjustment has a real cancel endpoint, inventory-stockAdjustment does not. Neither has an approval cycle, and the one conversion method both share (to Purchase Bill) is wired in the service but disabled at every call site on both sides."
+  - "spare-dc is NOT an inert decoy -- only its SalesOrderService import is dead. Its own DC->Invoice conversion (same mechanism as inventory-dc, under a separate api/spares-dcs URL namespace) is real and reachable. It also has one dead never-called cancel-sdc endpoint alongside its real closedDc-based cancel -- two cancel implementations exist, only one is used."
+  - "inventory-sr's real identity (RMA) is hidden behind a misleading folder/entity name (SR) -- anyone searching the codebase for 'return' or 'RMA' by folder name alone would miss it."
+  - "GRN has an undocumented bulk-import path (POST bulk-upload, multipart) alongside its normal single-record create flow, and an activity/comments side-channel -- neither is a conversion edge, but both are real, reachable features not obvious from the entity's main CRUD surface."
+  - "GRN->PurchaseBill has two entry points into the same edge: GRN's own convertgrntopb button, and a companion pull (getgrnstopd) driven from the Purchase Bill side that searches for and pulls an existing GRN's lines -- the same 'two UI paths, one resulting shape' pattern flow/sales-flow.yml documented for SO->Invoice."
+
+# ============================================================================
+# REVISION LOG
+# ============================================================================
+changelog:
+  - "rev 2 (2026-07-03): independent verification pass via two separate read-only research passes re-deriving every claim from source instead of trusting rev 1's summary. Corrected: spare-dc's real resourceUrl (api/spares-dcs, not a guessed placeholder), GRN->PB request field names (assignedTo not assignUsers, added paymentTerms/termsOfDelivery fields), upgraded two backward-links from 'not confirmed' to CONFIRMED (GRN->PB via getgrnref/searchforpbcnv/grnNumber-filter; DC->Invoice via invoice.model.ts's dcid field), corrected spare-stockAdjustment cancel claim (it DOES have one, inventory-stockAdjustment does not -- rev 1 wrongly said neither had one). Major addition: RMA (inventory-sr) is NOT pull-only -- it converts out to both GRN and DC and is also fed by Billing, none of which rev 1 found. Minor additions: GRN bulk-upload, GRN activity-log side-channel, DC's manual-only ewaybillno field, dead spare-dc cancel-sdc endpoint, PATCH-has-zero-callers note on both GRN and confirmed dead alternates."

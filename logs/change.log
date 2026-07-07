@@ -22,3 +22,10 @@
         ├── entrypoint -> Added minimal main.py for FastAPI service
         ├── orchestrate -> Created root docker-compose.yml linking all apps to AlloyDB Omni
         └── documentation -> Created root README.md summarizing project structure and commands
+
+[2026-07-07 15:44:23] Restructured workflow files
+└── File: flow/
+    ├── Choice: Replaced old dispatch quantity workflow and added new workflow templates
+    └── Changes:
+        ├── rename -> Removed flow/dispatched-quantity.yml and replaced with flow/dispatch-quantity-flow.yml
+        └── addition -> Added flow/inventory-flow.yml, flow/purchase-flow.yml, and flow/sales-flow.yml

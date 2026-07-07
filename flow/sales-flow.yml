@@ -1,0 +1,619 @@
+# SALES PIPELINE — flow-centric, endpoint-level contract map
+# updated: 2026-07-03 (rev 3 — added full PERMISSION MODEL section: where CRUD
+# permissions and approval-workflow flags actually come from, who assigns them,
+# and how sales-appr-setup fits in; plus closed the Invoice/Billing->Payment gap
+# with the real trigger path, reverse-writeback answer, and partial-payment
+# mechanics. See "PERMISSION MODEL" and the expanded "payment" stage below.)
+# rev 2 — added full human approval SEQUENCE: who acts, what triggers what, what
+# dialog/state appears, and how each stage actually unlocks its next-stage
+# Convert buttons. See "APPROVAL SEQUENCE" section below.
+# Scope: quotes -> sales-order -> {PI, invoice, purchase-order x2, installation, inventory-dc}
+#        -> payment ; parallel estimation -> billing ; parallel amc -> billing ; both -> payment
+# Source of truth: actual Angular request-building code (real client contract).
+# NOT independently verified against live server responses this pass (no live-API tool
+# available this session) -- "response_used" lists ONLY fields the frontend code actually
+# reads back; it is not a full server response schema.
+# No file/method names below by design -- this is a data-contract view, not a code map.
+# Every edge now carries: why (business reason this connection exists) and
+# backward_link (can you trace target -> source in reverse, and how).
+
+# ============================================================================
+# REUSABLE PATTERN — DIALOG-CASCADE approval family. Used by Quote, Sales-Order,
+# Invoice (verified line-by-line identical across all three, rev 2). A single
+# permission flag gates ONE "Approval" button for both the person requesting and
+# the person deciding -- role is resolved server-side, not by a separate
+# frontend permission. See the APPROVAL SEQUENCE section below for the full
+# click-by-click human sequence; this anchor is the compact per-stage summary.
+# ============================================================================
+approval_cycle: &approval_cycle
+  why: "gates every conversion below -- nothing is allowed to move forward until a manager signs off on pricing/margin and/or supporting documents"
+  family: dialog_cascade
+  step_1_request_approval:
+    endpoint: {method: POST, path: "/api/<module>/marginrequestapproval"}
+    request: {location: query params, fields: [remarks, isDraft]}
+    response_used: none
+    processing: flags the record as pending review, no confirmation data read back
+  step_2_decide:
+    note: "two INDEPENDENT tracks run per record -- margin approval and document approval -- each with its own endpoint and its own reqApproval id. Which tracks are active is config-driven per record (isMargin/isDocument flags on the record itself), not a user permission."
+    endpoint: {method: POST, path: "/api/<module>/marginapproval  (+ separate .../docapproval)"}
+    request:
+      location: query params
+      fields: [isApproveReject ("approve" | "reject"), modulePath, remarks, reqApprovalId (nullable), isDraft, isEditDraftApprove]
+    response_used: none
+    processing: sets Approved/Rejected server-side; client never reads the new status back, it re-fetches the record separately
+  draft_variant: "identical shape with isDraft:true -- a second, separate approval pass for draft-stage edits (i.e. editing an ALREADY-approved record triggers its own request->decide cycle before the edit takes effect)"
+  status_check_endpoint: "GET .../<module>requestapproval -- called every time the single 'Approval' button is clicked; its response's approvalStatus string (a per-viewer SESSION signal, distinct from the record's own persisted approvalStatus field) decides which of ~9 dialogs the current viewer sees -- see APPROVAL SEQUENCE below for the full list"
+  backward_link: "n/a -- approval mutates the record's own status field, it does not create or reference another entity"
+
+# ============================================================================
+# REUSABLE PATTERN — STATUS-DRIVEN-FOOTER approval family. Used by Billing and
+# Estimation (verified line-by-line identical across both, rev 2). GENUINELY
+# DIFFERENT from the dialog-cascade family above, not just renamed: one shared
+# POST endpoint for both requesting and deciding, and which footer buttons
+# render is computed client-side directly from the record's own PERSISTED
+# status string (including string-matching on `.includes('Waiting for')`),
+# with no separate per-viewer GET/session-signal step.
+# ============================================================================
+status_driven_footer_cycle: &status_driven_footer_cycle
+  why: "same governance goal as the dialog-cascade family (manager sign-off before a document is final), implemented as a newer, simpler single-endpoint pattern -- Billing/Estimation were built after Quote/SO/Invoice and don't share their code"
+  family: status_driven_footer
+  submit_endpoint:
+    endpoint: {method: POST, path: "/request-approval-status"}
+    request:
+      location: JSON body
+      fields: [moduleId, subModuleId, approverId, approverUserName, activityId, approveStatus, remarks]
+      note: "the SAME endpoint and SAME body shape is used for requesting approval AND for approving/rejecting -- only approveStatus differs: REQUEST/DRAFT to ask, APPROVED/REJECTED/DRAFT_APPROVED/DRAFT_REJECTED to decide"
+    response_used: none
+  log_endpoint: {method: GET, path: "/approval-log/{id}"}
+  no_separate_status_check: "unlike the dialog-cascade family, there is no GET-then-branch step -- the record's own persisted status field (billApprovalStatus / estStatus) is read directly off the already-loaded record to decide which buttons to show"
+  status_values: [NO_REQUEST ("NO REQUEST"), REQUESTED, "'Waiting for...' (free-text-prefixed, sequential-approver signal)", APPROVED, REJECTED, DRAFT_REQUESTED ("DRAFT REQUESTED"), "'Draft approved ' (free-text-prefixed)", DRAFT_APPROVED ("DRAFT APPROVED"), DRAFT_REJECTED]
+  backward_link: "n/a -- same as dialog-cascade family, mutates the record's own status field only"
+
+# ============================================================================
+# APPROVAL SEQUENCE — the actual human click-by-click flow, both families.
+# This answers "who approves who, what happens, how do we move to the next
+# stage" concretely, stage by stage. Added rev 2 per explicit request.
+# ============================================================================
+approval_sequence:
+  shared_rule_across_both_families:
+    - "There is no separate 'approver' permission anywhere in the Sales module frontend. ONE permission flag per stage (qtnApproval / soApproval / invApproval / billApproval / sestimationApproval) gates the SAME single Approval button/action for every user who has it -- whether that specific person turns out to be the requester, the assigned approver, or someone who must wait their turn is decided entirely server-side, per click, not by a frontend role check."
+    - "Both families support a SECOND, independent 'draft' approval pass, used specifically when someone edits a record that has ALREADY been approved -- the edit itself doesn't take effect until this second pass is also approved. This is why every stage has draft_* variants of every status/endpoint."
+    - "Both families show real evidence of a SEQUENTIAL, MULTI-LEVEL approver chain on the backend (dialog-cascade: a literal 'levelunauth~Previous priority approver has not approved.' blocking state; status-driven-footer: a 'Waiting for...' persisted status string). Exactly who the levels are, how many there are, and how the next approver is picked is backend Java logic, out of scope for this frontend-only doc -- only the fact that it exists and blocks out-of-turn actors is confirmed from the frontend's behavior."
+
+  dialog_cascade_family:
+    used_by: [quote, sales_order, invoice]
+    trigger: "user clicks the single 'Approval' link/button (visible only if they have the stage's permission flag)"
+    step_1: "click fires a GET status-check per active track (margin track if isMargin===true on the record, document track if isDocument===true -- both can be active on the same record, checked independently)"
+    step_2_branch_on_response:
+      approverequest: "this viewer is the one who needs to REQUEST approval -> opens the 'Request For Approval' dialog (remarks textarea, max 300 chars, Request button) -> submit fires the step_1_request_approval POST from the approval_cycle anchor above -> toast 'Request For Approval' -> record's persisted approvalStatus moves toward Pending server-side"
+      approverequestsent: "a request is already in flight -> opens a blocking 'already sent request, please wait for response' dialog -- no action available, just prevents duplicate requests"
+      unapproved: "this viewer IS the assigned approver and it's their turn -> opens the 'Approve OR Reject' dialog (remarks + Approve button + Reject button) -> clicking either fires the step_2_decide POST from the approval_cycle anchor above with isApproveReject set accordingly -> toast 'Approved Quotation Request' / 'Rejected Quotation Request' -> record's persisted approvalStatus flips to Approved or Rejected server-side"
+      levelunauth_prefixed: "message is literally 'levelunauth~Previous priority approver has not approved.' -> opens a dialog that just tells this viewer it isn't their turn yet -- CONFIRMS a sequential multi-level approver chain exists (a lower-priority approver cannot act until a higher-priority one has)"
+      draft_variants: "draftapproverequest / draftapproverequestsent / draftunapproved / drafteditunapproved / drafteditapproverequest / drafteditapproverequestsent -- the exact same 3-outcome shape (request / wait / decide) as above, but for the second draft-approval pass triggered by editing an already-approved record; uses isDraft:true and isEditDraftApprove flags on the same endpoints"
+    persisted_status_badge: "record.approvalStatus shown as a badge: '' or null (never requested) -> 'Pending' (request submitted, awaiting decision) -> 'Approved' or 'Rejected' (decided). 'Draft' appears when a draft-pass is in flight on an already-approved record."
+    how_next_stage_unlocks: "every downstream Convert button in this pipeline is gated by the same shape of guard: `record.approvalStatus === 'Approved' || !retrievedpermmsion.<stageflag>` (Invoice additionally treats a null approvalStatus as pass-through). In plain terms: once BOTH active tracks (margin and/or document, whichever are enabled for that record) have gone through request->decide and landed on Approved, the Convert/PI/SO/etc. buttons documented in each stage's `edges` list below become clickable. Users who don't have the approval flag at all skip this gate entirely -- approval only applies to users/records it's configured for."
+    invoice_specific_note: "Invoice is a near line-for-line copy of Quote's approval code (even reuses method names like postQuotesmarginApproval internally) -- confirmed identical mechanic, only cosmetic differences (extra cancel-flow, an extra null-status dialog variant)."
+
+  status_driven_footer_family:
+    used_by: [billing, estimation]
+    trigger: "user clicks a Request/Approve/Reject button that is ALREADY the correct one for their situation -- which buttons even render is computed client-side from the record's own persisted status field the moment the page loads, not from a click-triggered server round-trip"
+    button_visibility_rules:
+      request_button: "shown when the permission flag is set AND persisted status is one of: NO REQUEST, DRAFT APPROVED, REQUESTED, DRAFT REQUESTED, OR the status text contains 'Waiting for', OR it starts with 'Draft approved '"
+      draft_request_button: "shown when the permission flag is set AND (status contains 'Waiting for' OR status === APPROVED)"
+      approve_reject_buttons: "shown ONLY when status contains 'Waiting for' OR status === REQUESTED -- this is the moment this viewer is the one who can decide"
+      draft_approve_reject_buttons: "shown when status starts with 'Draft approved ' OR status === DRAFT_REQUESTED"
+    step_1_request: "clicking Request (or its draft variant) opens a confirmation dialog, then fires the shared submit_endpoint (POST /request-approval-status) with approveStatus = REQUEST (or DRAFT) -- persisted status server-side then flips to something matching 'Waiting for...' or REQUESTED, which is what makes the Approve/Reject buttons appear for whoever the next viewer with the permission flag is"
+    step_2_decide: "clicking Approve/Reject (or its draft variant) fires the SAME submit_endpoint with approveStatus = APPROVED/REJECTED/DRAFT_APPROVED/DRAFT_REJECTED -- persisted status flips accordingly"
+    multi_level_signal: "the 'Waiting for...' persisted status string is the equivalent of the dialog-cascade family's levelunauth dialog -- it's a live, human-readable server signal of whose turn it is in a sequential chain, just surfaced as inline status text on the record itself rather than a popup dialog"
+    how_next_stage_unlocks: "guard shape is the same idea as the dialog-cascade family but with an UPPERCASE literal: `record.status === APPROVED || !retrievedData.<stageflag>` (billApprovalStatus for Billing, estStatus for Estimation). Estimation layers additional per-target guards on top (e.g. a separate isBillingConverted flag, a canConvertToWorkOrder() check) before its own Convert buttons unlock -- Billing's Approved check alone is sufficient for its own downstream actions."
+    why_this_matters: "if you're trying to trace 'why can't this user see the Approve button', check whether the stage is dialog-cascade (Quote/SO/Invoice -- click Approval and read the GET response) or status-driven-footer (Billing/Estimation -- just look at the record's persisted status string directly, no click needed to know)."
+
+# ============================================================================
+# PERMISSION MODEL — who can even see the buttons documented in this file, and
+# who configures that. Added rev 3, per explicit request ("who is give what
+# permissions? this must be mention"). Two COMPLETELY SEPARATE systems feed the
+# same localStorage object -- confirmed by tracing both from scratch.
+# ============================================================================
+permission_model:
+  fetch:
+    why: "the whole permission tree is fetched ONCE per login, not per page -- every screen just reads the same cached object"
+    endpoint: {method: GET, path: "/api/permissions/{userId}"}
+    when: "called once at login (core/auth/account.service.ts), and again on app-shell init (main/navbar components) -- not re-fetched per navigation"
+    storage: "the entire response body is stored verbatim as localStorage.responseData -- no client-side merging or transformation happens to it"
+
+  response_shape:
+    master_toggles: "isSales, isService, isInventory, isPurchase -- top-level booleans that gate whole modules"
+    crud_trees: "salesSubModulePerm / serviceSubModulesPerm / inventorySubModulesPerm / purchaseSubModulesPerm -- each an object keyed by submodule name (qtn, so, invoice, billing, spareEstimation, accounts, contacts, products, ...), each carrying {id, isview, isadd, isedit, iscancel} (some submodules add iseinvoice/isrepdownload)"
+    approval_flags: "qtnApproval, soApproval, invApproval, billApproval, sestimationApproval -- SIBLINGS of salesSubModulePerm at the TOP LEVEL of the response, not nested inside it. This is why CRUD access (salesSubModulePerm.qtn.isedit) and approval-workflow access (qtnApproval) are read from two different places in the code despite living in the same object."
+    variable_naming_inconsistency: "Quote/Sales-Order/Invoice components store this object in a variable called retrievedpermmsion (typo preserved from source); Billing/Estimation components store the identical object as retrievedData -- same localStorage key, same shape, just two different local variable names depending on which stage's code you're reading. Not two different data sources."
+
+  crud_permission_assignment:
+    where: "inside the User Management LIST screen (admin/user-management) -- there is no separate 'Role' editor for this"
+    how: "a flat PER-USER checkbox matrix: pick a user, a dialog loads their current tree via the same GET /api/permissions/{id}, an admin ticks isview/isadd/isedit/iscancel (+ iseinvoice/isrepdownload where applicable) per submodule per module, then Submit rebuilds the same tree shape and calls POST /api/permissions (new) or POST /api/permissions/update (existing), keyed by the target user's id"
+    no_role_indirection: "permissions attach directly to a user id -- there is no 'assign Role X, Role X carries permission bundle Y' layer for CRUD access"
+    admin_gating: "weak -- the admin/user-management route has NO route guard (no canActivate, no authorities check) restricting who can reach this screen. The only related concept is a per-user 'isAdmin' checkbox on that same user's own profile, gated by a separate adminKey value, not a router-level authority check. In practice, reachability is controlled by menu visibility, not enforcement."
+
+  approval_permission_assignment:
+    where: "a COMPLETELY SEPARATE admin screen: entities/sales-appr-setup (+ its join entity sales-appr-setup-usr) -- confirmed to have NO code path connecting it to the user-management CRUD screen above"
+    what_it_configures:
+      - "which MODULE a rule applies to (a dropdown sourced from a dedicated approval-modules endpoint, matching the modulePath strings like 'sqtn' used throughout the approval endpoints)"
+      - "the approval MODE: ANYONE (any one listed approver can decide), ALL (every listed approver must decide), or LEVEL (a strict sequential chain)"
+      - "for LEVEL mode: an ordered LEVEL_1 / LEVEL_2 / LEVEL_3 assignment, one or more users per level, enforced unique-and-sequential in the form itself (you can't skip or duplicate a level)"
+      - "an alternate MARGIN-PERCENT routing mode (independent of level): rows of {user, comparison condition >=/<=/>/<, percent value} -- e.g. 'discounts above 40% need user X to sign off' -- instead of, or alongside, level-based routing"
+      - "the join entity sales-appr-setup-usr additionally carries an explicit numeric priority field per approver -- this is almost certainly what the runtime 'levelunauth~Previous priority approver has not approved.' message and the 'Waiting for...' status string are keying off"
+    critical_gap: "sales-appr-setup is AUTHORED from the frontend (a real Add/Edit Approver form exists, fully functional) but is NEVER READ at runtime by any of the five approval-gated components (quote/sales-order/invoice/billing/estimation) -- zero cross-references found. The actual per-record, per-user gating decision (am I the requester? the approver? must I wait?) is computed entirely server-side, presumably by the backend consulting this same configuration data. So: 'who is allowed to configure the approval hierarchy' is fully answerable from the frontend (this section); 'why did the server decide THIS specific user is next in line right now' is not -- that logic lives in Java, correctly out of scope for a frontend-only doc."
+    is_this_the_qtnApproval_source: "the qtnApproval/soApproval/etc. flags in the permissions response are NOT written by the sales-appr-setup screen either (it has its own separate CRUD API, disjoint from api/permissions). Best-supported read: sales-appr-setup configures the WORKFLOW (who approves what, in what order); api/permissions' approval flags are a simpler per-user 'does the approval workflow even apply to you' switch, computed and merged into the permissions response by the backend from data that likely includes, but isn't limited to, sales-appr-setup. This merge point itself is backend and not independently confirmed this pass."
+
+  role_entity_note: "app-usr-role (singular) is a live, simple named-role LABEL assignable to a user via a single dropdown on their profile -- it carries NO permission bundle itself (just id/name/isactive), it's closer to a job-title tag than an RBAC role. app-usr-roles (plural) is a near-duplicate model referenced only by its own CRUD route -- no other code assigns it to a user, effectively dead/legacy for this flow."
+
+# ============================================================================
+# PIPELINE GRAPH — at a glance. EXTENDED rev 4: every node now also carries its
+# permission gate, cancel presence, and (for the two config screens that
+# control approval_gated behavior across the whole pipeline) their own entry.
+# ============================================================================
+graph:
+  # ---- configuration nodes (not pipeline stages -- these CONTROL the gates
+  # every stage below checks; included so the graph shows the whole picture,
+  # not just the document-to-document conversions) ----
+  permissions_config:
+    kind: configuration
+    why: "the single source of both CRUD access (can this user even open Quote/SO/Invoice/Billing/Estimation) and the approval on/off switch (qtnApproval etc.) that every stage below reads"
+    fetched_by: "GET /api/permissions/{userId} once at login -- see PERMISSION MODEL section above"
+    authored_at: "admin/user-management list screen (flat per-user checkbox matrix, no roles)"
+    feeds: [quote, sales_order, invoice, billing, estimation]
+  sales_appr_setup_config:
+    kind: configuration
+    why: "defines the actual approval HIERARCHY (who approves what, in what order) that the backend consults when a request/decide click comes in -- authored here, enforced elsewhere"
+    authored_at: "entities/sales-appr-setup + sales-appr-setup-usr admin screens"
+    feeds: [quote, sales_order, invoice, billing, estimation]
+    caveat: "authoring only -- confirmed NOT read at runtime by any of the 5 stages' own frontend code (see PERMISSION MODEL section above)"
+
+  # ---- pipeline stages ----
+  quote:
+    approval_gated: true
+    approval_family: dialog_cascade
+    permission_flag: qtnApproval
+    cancel: none
+    edges_out: [proforma_invoice, sales_order]
+  sales_order:
+    approval_gated: true
+    approval_family: dialog_cascade
+    permission_flag: soApproval
+    cancel: "PUT /api/sales-orders/cancel/{id}"
+    extra_guard: "soStage != Cancelled, required for every edge below"
+    edges_out: [proforma_invoice, invoice, purchase_order_normal, purchase_order_buyback, installation, inventory_dc]
+  estimation:
+    approval_gated: true
+    approval_family: status_driven_footer
+    permission_flag: sestimationApproval
+    cancel: "GET /api/spare-estimations/cancel-est"
+    edges_out: [billing]
+    note: "runs parallel to quote/sales-order, not connected to them"
+  amc:
+    module_ownership: SERVICE
+    approval_gated: "not documented this pass -- out of Sales scope"
+    edges_out: [billing]
+    note: "second, independent real data-source into Billing alongside estimation -- documented here only because of that inbound edge"
+  billing:
+    fed_by: [estimation, amc]
+    approval_gated: true
+    approval_family: status_driven_footer
+    permission_flag: billApproval
+    cancel: "PUT /api/billings/cancel-ebilling (cancels the e-invoice record specifically, not the Billing record itself -- see stage below)"
+    edges_out: [payment]
+  invoice:
+    approval_gated: true
+    approval_family: dialog_cascade
+    permission_flag: invApproval
+    cancel: "POST /api/invoices/cancelinvoice"
+    edges_out: [payment]
+  proforma_invoice:
+    fed_by: [quote, sales_order]
+    approval_gated: "not documented this pass"
+    edges_out: []
+    note: "target of both Quote's and Sales-Order's convert-to-pi edges (see each stage's edges list) -- PI's own downstream behavior (does it ever convert into anything else, does it have its own approval/cancel) was not independently researched this pass, out of scope"
+  purchase_order_normal:
+    module_ownership: PURCHASE
+    fed_by: [sales_order]
+    edges_out: []
+    note: "not re-documented here -- see Purchase module (out of scope this pass); only the inbound edge from Sales Order is covered under sales_order's edges list"
+  purchase_order_buyback:
+    module_ownership: PURCHASE
+    fed_by: [sales_order]
+    edges_out: []
+    note: "same caveat as purchase_order_normal -- a distinct conversion (trade-in/buy-back), not re-documented in full"
+  installation:
+    module_ownership: SERVICE
+    fed_by: [sales_order]
+    edges_out: []
+    note: "hands off to the Service module -- not re-documented in full, out of scope this pass"
+  inventory_dc:
+    module_ownership: INVENTORY
+    fed_by: [sales_order]
+    approval_gated: true
+    edges_out: [invoice]
+    note: "real delivery/dispatch document created FROM sales-order; included here because it's an SO-triggered branch, even though it lives in the Inventory module and Invoice does not consume it from THIS pipeline's own SO->Invoice edge. CORRECTION (see flow/inventory-flow.yml, researched separately): Inventory DC has its OWN independent DC->Invoice conversion not visible from the Sales side -- an Invoice can also originate from a DC, not just from this SO->Invoice edge. Treat 'Invoice does NOT read from any DC' below as scoped to this edge only, not as a blanket statement about DC's capabilities. Full DC lifecycle (approval, cancel, batch/serial handling) is documented in flow/inventory-flow.yml, not repeated here."
+  payment:
+    terminal: true
+    fed_by: [invoice, billing, "sales_order (CADV type only)", "cms/complaint (CADV type only)"]
+    trigger: "MANUAL ONLY -- no direct 'Pay' button exists on Invoice or Billing; always started from a blank Payment form + account-name search (see PAYMENT stage below for full detail)"
+    note: "pulls FROM invoice/billing rather than being pushed to -- see stage below"
+
+# ============================================================================
+# ASCII TREE -- same ├──/└──/│ style as _logs/change.log, immediate mental map,
+# no renderer needed
+# ============================================================================
+ascii_tree: |
+  Quote
+  ├── approval: dialog_cascade (qtnApproval)        cancel: NONE -- the one entity with no cancel at all
+  ├── Quote -> Proforma Invoice   [POST convert-quote-to-pi]
+  └── Quote -> Sales Order        [POST convert-quote-to-so]   (one-shot, unless ratecontract=1)
+      └── Sales Order
+          ├── approval: dialog_cascade (soApproval)   cancel: PUT cancel/{id}
+          ├── SO -> Proforma Invoice   [POST convert-so-to-pi]
+          ├── SO -> Invoice   [POST convert-so-to-inv]   <- the actual revenue event
+          │   └── Invoice
+          │       ├── approval: dialog_cascade (invApproval)   cancel: POST cancelinvoice
+          │       ├── e-invoice generate/cancel endpoints (GST compliance)
+          │       └── Invoice -> Payment   (pulled in, not pushed -- see Payment below)
+          ├── SO -> Purchase Order (normal)      [POST mapsoproductforpurchaseorder]   (Purchase module)
+          ├── SO -> Purchase Order (buy-back)    [POST sobuybackconvertpurchaseorder]  (one-shot, Purchase module)
+          ├── SO -> Installation                 [POST convert-so-to-installation]    (hands off to Service module)
+          └── SO -> Inventory DC                 [GET mapsoproductforinventorydc/{id}] (Inventory module)
+              └── (Inventory DC has its OWN separate DC->Invoice path -- see flow/inventory-flow.yml)
+
+  Estimation   (parallel path -- NOT connected to Quote/Sales Order)
+  ├── approval: status_driven_footer (sestimationApproval)   cancel: GET cancel-est
+  └── Estimation -> Billing   [POST /api/billings]   (full point-in-time snapshot, not just a reference)
+
+  AMC   (Service module -- 2nd, independent real source into Billing)
+  └── AMC -> Billing   (same full-snapshot pattern as Estimation -> Billing)
+
+  Billing   (fed by: Estimation, AMC)
+  ├── approval: status_driven_footer (billApproval)   cancel: PUT cancel-ebilling (e-invoice record only, not Billing itself)
+  ├── e-invoice generate endpoint (GST compliance)
+  └── Billing -> Payment   (pulled in, not pushed)
+
+  Payment   (terminal -- always manually started, never a button on Invoice/Billing)
+  ├── RECV type -> pulls Invoice + Billing outstanding-balance lookups
+  ├── CADV type -> pulls Sales Order + CMS/Complaint lookups instead   (advance payment)
+  ├── partial payment fully supported across multiple sessions; NO reverse write-back to Invoice/Billing (backend recomputes their balance)
+  └── fed by: Invoice, Billing, Sales Order (CADV only), CMS/Complaint (CADV only)
+
+  CONFIG -- not pipeline stages, but gate every approval flag used above
+  ├── Permissions   [GET /api/permissions/{userId}, fetched once at login, cached in localStorage]
+  │   ├── CRUD access -- authored in admin/user-management (flat per-user checkboxes, no roles at all)
+  │   └── approval on/off flags (qtnApproval, soApproval, invApproval, billApproval, sestimationApproval) -- same response, sibling keys
+  └── sales-appr-setup -- authors the approval HIERARCHY (ANYONE/ALL/LEVEL modes, margin-percent routing)
+      └── real, working admin UI, but NEVER read at runtime by any of the 5 stages above -- enforcement is 100% backend
+
+# ============================================================================
+# STAGE 1 — QUOTE
+# ============================================================================
+quote:
+  approval:
+    <<: *approval_cycle
+    id_param: quoteId
+    permission_flag: "retrievedpermmsion.qtnApproval -- single flag, gates both requesting and deciding (see APPROVAL SEQUENCE above)"
+    concrete_endpoints:
+      request: POST /api/quotes/quotemarginrequestapproval
+      margin_decide: {path: POST /api/quotes/quotesmarginapproval, reqApproval_param: invoiceReqApproval}
+      document_decide: {path: POST /api/quotes/quotesdocapproval, reqApproval_param: quoteReqApproval}
+  no_cancel_flow: true  # confirmed -- this is the one entity in the whole pipeline with no cancel action at all
+
+  edges:
+    - to: proforma_invoice
+      why: "lets the customer pre-approve/pay a proforma amount before a real order exists -- common for advance-payment or export deals"
+      guard: "approved (or approval not required)"
+      endpoint: {method: POST, path: /api/quotes/convert-quote-to-pi}
+      request:
+        location: query params, body empty
+        fields: {quoteId: number, contactId: number (user-picked), piTypeId: number (user-picked), option: string (user-picked)}
+      response_used: none
+      processing: "creates a new PI record; nothing read back, quote itself is not updated"
+      backward_link: "none found -- PI conversion writes no reference back onto the Quote"
+
+    - to: sales_order
+      why: "the customer has formally committed (PO in hand) -- this is the moment a quote becomes a real, committed sale"
+      guard: "quote.soNo == null OR quote.ratecontract == 1  --  AND approved"
+      one_shot: true  # unless ratecontract flag allows repeat spin-offs
+      endpoint: {method: POST, path: /api/quotes/convert-quote-to-so}
+      request:
+        location: query params, body empty
+        fields:
+          quoteId: number
+          contactId: number (user-picked)
+          soStageId: "number -- NOT user-picked, auto-resolved client-side to whichever stage is named 'New Order'"
+          poNumber: string (user-entered)
+          option: string (user-picked)
+          poDate: date (user-entered)
+          conDeliveryDate: date (user-entered)
+          supplyTypeId: number (user-picked)
+      response_used:
+        - "status == 200 (success check)"
+        - "body.soid.soNumber -> written into quote.soNo client-side, which is what hides the Convert button next time"
+      processing: "creates new Sales Order record; quote is patched locally with the new SO's number for display/guard purposes -- this is the ONLY conversion in the whole sales pipeline that reads anything back from the response"
+      backward_link: "forward link only (quote.soNo). A separate quote-so-conversion audit record stores both ids for a read-only trace, but the Sales Order record itself carries no pointer back to its originating Quote"
+
+# ============================================================================
+# STAGE 2 — SALES ORDER
+# ============================================================================
+sales_order:
+  approval:
+    <<: *approval_cycle
+    id_param: salesOrderId
+    permission_flag: "retrievedpermmsion.soApproval -- single flag, gates both requesting and deciding (see APPROVAL SEQUENCE above)"
+    concrete_endpoints:
+      request: "POST /api/sales-orders/... marginrequestapproval (mirrors quotes pattern, exact path not independently re-confirmed this pass)"
+      margin_decide: {reqApproval_param: salesOrderReqApproval}
+      document_decide: {reqApproval_param: salesOrderReqApproval}
+  cancel:
+    why: "stops the order from progressing once it's no longer valid (deal fell through, mistake, etc.) -- the escape hatch out of the forward pipeline"
+    endpoint: {method: PUT, path: "/api/sales-orders/cancel/{id}"}
+    request: {location: path param, fields: {id: number}}
+    response_used: none
+    processing: "sets soStage to Cancelled; once cancelled, every edge below is blocked"
+
+  edges:
+    - to: proforma_invoice
+      why: "same proforma need as at quote stage, but usable later once the order is locked in (e.g. mid-order advance billing)"
+      guard: "approved AND soStage != Cancelled"
+      endpoint: {method: POST, path: /api/sales-orders/convert-so-to-pi}
+      request:
+        location: JSON body
+        fields:
+          piTypeId: number (user-picked)
+          salesOrderId: number
+          mapSalesOrderProducts: "array of product rows, user-selected subset with editable pendingQty"
+          mapSalesOrderAddlCharges: "array of charge rows, user-selected subset"
+      response_used: none
+      backward_link: "none -- no reference written back to the SO"
+
+    - to: invoice
+      why: "this is the actual revenue event -- goods/services are being billed to the customer"
+      guard: "approved AND soStage != Cancelled"
+      endpoint: {method: POST, path: /api/sales-orders/convert-so-to-inv}
+      request:
+        location: JSON body
+        fields:
+          invoiceType: number (user-picked)
+          salesOrderId: number
+          mapSalesOrderProducts: "user-selected product rows, editable pendingQty"
+          mapSalesOrderAddlCharges: "user-selected charge rows"
+      response_used: none
+      processing: "creates a new Invoice record; a separate read-only audit record is also created linking SO<->Invoice, but that record plays no role in this data flow"
+      manual_alternative_path: "same end-state reachable by opening a blank Invoice and manually searching for the Sales Order, which pulls its product/charge lists into the form -- two different UI paths, same resulting record shape. NOTE (see flow/inventory-flow.yml): a THIRD path also exists -- converting an Inventory DC directly to Invoice, entirely independent of this SO edge."
+      backward_link: "REAL and permanent -- Invoice stores soamdno/soid pointing back to its originating Sales Order. You can trace Invoice -> SO directly; there is no reverse field on the SO itself, so tracing SO -> its Invoices means searching Invoice by SO id instead"
+
+    - to: purchase_order_normal
+      why: "some ordered products aren't in stock -- this spins off a purchase order to buy them from a vendor before they can be delivered"
+      guard: "approved AND soStage != Cancelled"
+      endpoint: {method: POST, path: /api/sales-orders/mapsoproductforpurchaseorder/}
+      request:
+        location: JSON body
+        fields:
+          salesOrderId: number
+          poType: number (user-picked)
+          stores: number (user-picked warehouse)
+          suppliers: "full supplier object (not just id) -- sent as-is"
+          mapSalesOrderProducts: "user-selected product rows, pendingQty validated in range (0, qty]"
+          isDefaultWareHouse: boolean
+      response_used: none
+      backward_link: "not confirmed this pass -- response ignored, and whether the resulting Purchase Order stores a pointer back to the SO was not checked (purchase module is documented separately)"
+
+    - to: purchase_order_buyback
+      why: "vendor takes back old equipment as part of the deal (trade-in) -- this creates the vendor-side purchase order for that buy-back"
+      guard: "approved AND soStage != Cancelled AND buyBackConverted == false"
+      one_shot: true
+      endpoint: {method: POST, path: /api/sales-orders/sobuybackconvertpurchaseorder}
+      request:
+        location: JSON body (dates normalized client-side before send)
+        fields:
+          soNo: "number -- misleadingly named, actually the Sales Order's numeric id, not its display number"
+          poType: "number, auto-selected client-side as the PO type flagged 'POBB' (buy-back), not user-picked"
+          stores: number (user-picked)
+          conDeliveryDate: date (user-entered)
+          mapSalesOrderBuybackPoList: "full array sent unfiltered, unlike the other conversions which filter to selected rows only"
+      response_used: none
+      backward_link: "not confirmed this pass, same as normal PO conversion above"
+
+    - to: installation
+      why: "physical/technical setup needs to happen at the customer site after the sale -- hands the job to the service team"
+      guard: "approved AND soStage != Cancelled AND service-module permission enabled for the account"
+      endpoint: {method: POST, path: /api/sales-orders/convert-so-to-installation}
+      request:
+        location: JSON body
+        fields:
+          salesOrderId: number
+          mapSalesOrderProducts: "user-selected product rows"
+          installationType: number (user-picked)
+          installationStage: number (user-picked)
+          installationDate: date (user-entered)
+      response_used: none
+      note: "hands off to the service module -- out of sales-pipeline scope past this point"
+      backward_link: "out of scope (service module) -- not traced this pass"
+
+    - to: inventory_dc
+      why: "goods physically need to leave the warehouse and ship to the customer -- this is the dispatch/delivery paperwork, independent of whether or when the order gets invoiced"
+      module_ownership: INVENTORY
+      endpoint: {method: GET, path: "/api/sales-orders/mapsoproductforinventorydc/{salesOrderId}"}
+      request: {location: path param, fields: {salesOrderId: number}}
+      response_used: "SO's product lines, pulled directly into a new Inventory DC form (full field list documented in flow/inventory-flow.yml)"
+      processing: "creates a new Inventory Delivery Challan record from the SO's line items"
+      backward_link: "forward pointer only -- DC stores soid referencing the SO (cleared to null if not a real saved SO); no reverse pointer on the SO itself (confirmed in flow/inventory-flow.yml)"
+      warning: "there is a DECOY for this in the sales/service area -- the 'spare-dc' entity imports SalesOrderService but never calls it to build a DC (dead import); the real SO-to-DC conversion lives only in the Inventory module's 'inventory-dc' entity. Also note: this SO->Invoice edge specifically does NOT read from any DC -- but Inventory DC has its OWN separate DC->Invoice conversion documented in flow/inventory-flow.yml, so don't read this as 'DC never reaches Invoice' in general."
+
+# ============================================================================
+# STAGE 2b — ESTIMATION (parallel path, not connected to quote/sales-order)
+# ============================================================================
+estimation:
+  approval:
+    <<: *status_driven_footer_cycle
+    permission_flag: "retrievedData.sestimationApproval -- single flag, gates both requesting and deciding (see APPROVAL SEQUENCE above)"
+    status_field: estStatus
+    approved_literal: "APPROVED (uppercase -- differs from the dialog-cascade family's 'Approved')"
+    extra_guards: "downstream Convert buttons (to Billing, ServicePi, WorkOrder) layer additional per-target checks on top of the approval guard: isBillingConverted (blocks re-converting the same estimation to Billing twice), canConvertToWorkOrder()"
+  cancel:
+    endpoint: {method: GET, path: /api/spare-estimations/cancel-est}
+    note: "cancel implemented as a GET, unlike sales-order's PUT -- inconsistent verb choice, not a typo in this doc"
+
+  edges:
+    - to: billing
+      why: "spare-parts/service-style billing needs a firm, customer-approved estimate before the actual bill is raised"
+      guard: "billType is set AND at least one valid line item (spare with 0<pendingQty<=qty, or a valid service charge)"
+      endpoint: {method: POST, path: /api/billings}
+      note: "standard entity CREATE, not a dedicated /convert endpoint like the sales-order conversions above"
+      request:
+        location: JSON body
+        field_groups:
+          header: [billDate, billDueDate, module (from billType), billPaymentTerm, termsConditions, billType, billingStage, billingAccount, salesofficer, billAccountContact, "iscancel: false (hardcoded)"]
+          source_snapshot: "spareEstimation sub-object -- ~15 fields copied 1:1 from the estimation record being converted, so Billing keeps a full point-in-time copy, not just a foreign key"
+          addresses: "billingAccountsAddresss + billingSiteAddr, each rebuilt from the estimation's own address sub-objects"
+          line_items: "sparesChargesRowData (spare parts), serviceChargesRowData (labor/service), addlChargesRowDTO (misc charges) -- each an array of user-selected+edited rows with qty/rate/discount/tax recomputed client-side before send"
+          assignment: [assignedUsers, isAssignAll]
+      response_used: none
+      processing: "creates a new Billing record as a full snapshot of the estimation, not a lightweight reference"
+      manual_alternative_path: "same end-state reachable by opening a blank Billing and manually searching for the Estimation -- two different UI paths, same resulting record shape (same pattern as SO->Invoice above)"
+      backward_link: "snapshot only -- Billing keeps a copy of the estimation's fields at conversion time, so it's traceable by content but there is no maintained live foreign key back to the Estimation"
+
+# ============================================================================
+# STAGE 2c — AMC (second, independent real source into Billing)
+# ============================================================================
+amc:
+  module_ownership: SERVICE
+  note: "Annual Maintenance Contract -- documented here only because it feeds Billing directly with real line-item data, the same role Estimation plays above. Not the same as the one-way 'view AMC' navigation link some Billing screens also show."
+  edges:
+    - to: billing
+      why: "recurring maintenance-contract billing cycles should pull directly from the AMC's already-agreed asset list and pricing, so nothing has to be manually re-typed each billing cycle"
+      endpoint: {method: GET, path: "not confirmed this pass -- reached via an appAMC(amcId) style lookup, exact REST path not captured"}
+      request: {fields: {amcId: number}}
+      response_used:
+        - "body.amcBillDTO -> becomes the billing line-item list"
+        - "body (whole object) -> patched into contact, sales officer, pay-mode, billing/site address, and asset/tax fields on the new Billing form"
+      processing: "same 'full snapshot' pattern as Estimation->Billing -- Billing.module is set to 'AMC' to record which source was used"
+      backward_link: "Billing.module='AMC' plus a separate view-only /amc/:id/view navigation link exist, but neither was confirmed to be a maintained live foreign key -- treat as traceable-by-convention, not a guaranteed reverse lookup"
+  distinct_from: "CMS -> Estimation, which is navigation-only (see notes below) -- do not confuse the two, they look similar but only AMC->Billing actually moves data"
+
+# ============================================================================
+# STAGE 3 — INVOICE / BILLING settlement (both feed the same Payment stage)
+# ============================================================================
+invoice:
+  approval:
+    <<: *approval_cycle
+    id_param: invoiceId
+    permission_flag: "retrievedpermmsion.invApproval -- single flag, gates both requesting and deciding (see APPROVAL SEQUENCE above). Verified rev 2: Invoice's approval code is a near line-for-line copy of Quote's (internal methods are even still named postQuotesmarginApproval) -- identical mechanic, only cosmetic differences (extra cancel-flow, an extra null-status dialog variant)."
+  cancel:
+    endpoint: {method: POST, path: /api/invoices/cancelinvoice}
+    request: {fields: [cancelremarks (user-entered reason)]}
+    response_used: none
+  e_invoice_generate:
+    why: "government-mandated electronic invoice registration required before certain invoices are legally valid for GST purposes"
+    endpoint: {method: POST, path: "/api/invoices/generate-einvoice?invoiceId={id}"}
+    request: {location: query param, fields: {invoiceId: number}, body: empty}
+    response_used: none
+    processing: "fire-and-forget -- UI reloads the invoice list afterward and re-reads isEInvGenerated/isEInvCancelled flags from the refreshed record rather than from this call's response"
+  e_invoice_cancel:
+    endpoint: {method: PUT, path: "/api/invoices/cancel-einvoice?invoiceId={id}"}
+    response_used: none
+
+billing:
+  approval:
+    <<: *status_driven_footer_cycle
+    permission_flag: "retrievedData.billApproval -- single flag, gates both requesting and deciding (see APPROVAL SEQUENCE above)"
+    status_field: billApprovalStatus
+    approved_literal: "APPROVED (uppercase constant, same family as Estimation)"
+    corrects_rev1: "rev 1 of this doc incorrectly implied Billing shares Quote/SO/Invoice's dialog-cascade approval mechanic via the generic approval_cycle anchor merge. Verified rev 2: Billing does NOT use marginrequestapproval/marginapproval/docapproval endpoints at all -- it uses a single shared POST /request-approval-status endpoint for both requesting and deciding, with which buttons render computed from the persisted billApprovalStatus string client-side (including .includes('Waiting for') matching). See APPROVAL SEQUENCE's status_driven_footer_family above for the full mechanic."
+  cancel:
+    endpoint: {method: PUT, path: /api/billings/cancel-ebilling}
+    note: "cancels the e-Invoice (government e-invoicing record) specifically, not the Billing record itself"
+  e_invoice_generate:
+    why: "same government e-invoicing requirement as Invoice, but for the Billing document type"
+    endpoint: {method: POST, path: "/api/billings/generate-ebilling?billingId={id}&isEst={bool}"}
+    request: {location: query params, fields: {billingId: number, isEst: "boolean, true when the billing originated from Estimation vs AMC"}, body: empty}
+    response_used: none
+    processing: "same fire-and-forget pattern as Invoice's e-invoice generation"
+    known_bug: "the calling code also computes an isAmc flag (true when sourced from AMC) but never actually passes it to this endpoint -- isEst is sent either way, isAmc is silently dropped"
+
+# ============================================================================
+# STAGE 4 — PAYMENT (terminal stage; pulls data in rather than being converted into)
+# ============================================================================
+payment:
+  how_you_get_here: "CLOSES THE GAP: there is NO direct 'Pay'/'Record Payment' button anywhere on Invoice or Billing's detail or list pages (confirmed rev 3 -- grepped both entities' templates for any payment routerLink/navigation, found none). The only path is fully manual and disconnected from Invoice/Billing's own screens: a user opens a blank Payment form, types the customer's account name, and the inbound lookups below return that account's outstanding invoices/bills for them to pick from. There is no 'pay this specific invoice' shortcut starting from the invoice itself."
+  reverse_writeback: "CONFIRMED NONE from the frontend -- Payment's save() only ever calls the Payment create/update endpoint; it never calls invoiceService.update()/billingService.update() to patch a paid amount back. The backend alone recomputes and owns each invoice/bill's pending balance whenever a payment is applied against it."
+  live_balance_on_source_documents: "Invoice and Billing each independently display their OWN backend-populated running balance on their own detail pages -- invoice.paidAmount/unPaidAmount and billing.paidAmount/balanceAmount fields (shown as 'Paid Total Amt'/'UnPaid Total Amt', turning red when negative). This is NOT the same data as Payment's lookup response -- it's the source document's own persistent view of its payment status, visible even without ever opening the Payment screen. (Note: the LIST pages for Invoice/Billing do not show these fields, only the detail page does.)"
+  partial_payment_support: "fully supported, on both Invoice and Billing. Each lookup row is editable (receivedAmt + taxAmt can be less than the row's invAmt/pendingAmt); the client recomputes pendingAmt = invAmt - (receivedAmt + taxAmt) per row, clamps it at zero, and caps receivedAmt at invAmt (can't overpay a single line). Because the lookup only returns rows with a pending balance > 0.01, an invoice/bill that's partially paid simply reappears in a LATER Payment session for the same account until it's fully settled -- one Payment record does not have to be a full settlement, and a single invoice can be paid off across multiple separate Payment records over time."
+  types:
+    note: "only two values exist anywhere in the frontend -- hardcoded in a dropdown, not a real lookup entity or enum"
+    RECV:
+      meaning: "recording money received against existing invoices/bills"
+      triggers: [inbound_lookup_invoice, inbound_lookup_billing]
+    CADV:
+      meaning: "recording a customer advance payment, taken before/without a specific invoice or bill"
+      triggers: "pulls sales-order and CMS (complaint) lists instead of invoice/billing lists, for the user to tag the advance against"
+
+  inbound_lookups:
+    - id: inbound_lookup_invoice
+      why: "lets the person recording a payment see what this customer still owes before deciding how to allocate the money"
+      endpoint: {method: GET, path: /api/invoices/by-account-get-inv}
+      request: {location: query params, fields: {searchKey: "selected account's name"}}
+      response_used:
+        fields: [invNumber, invDate, soNumber, invAmt, invDueDate, pendingAmt]
+        processing: "filtered client-side to invAmt > 0.01; taxAmt/receivedAmt default to 0 and are edited by the user afterward -- not returned by the server"
+      backward_link: "n/a -- read-only lookup, not a conversion"
+    - id: inbound_lookup_billing
+      why: "same purpose as the invoice lookup above, for Billing-type outstanding amounts instead"
+      endpoint: {method: GET, path: /api/billings/by-account-get-bill}
+      request: {location: query params, fields: {searchKey: "selected account's name"}}
+      response_used:
+        fields: [billNumber, billDate, complaintNumber, billAmt, billDueDate, pendingAmt]
+        processing: "filtered client-side to billAmt > 0.01; taxAmt/receivedAmount default to 0, edited by user"
+      backward_link: "n/a -- read-only lookup, not a conversion"
+
+  submit:
+    why: "the final step that actually reduces the customer's outstanding balance -- this is where cash gets recorded against the invoices/bills chosen above"
+    endpoint: {method: "POST (create) or PUT (update)", path: "/api/payments  or  /api/payments/{id}", content_type: multipart/form-data}
+    request:
+      location: "one multipart field 'paymentDTO' = JSON string, plus one 'file' part per attachment"
+      field_groups:
+        header: [type, paymentDate, referenceNo, referencedate, amountReceived, allocatedAmount, taxAmount, excessAmount, returnedAmount, advancePayment, receivedPayment, tds, notes, financialyearid]
+        account: "leadacccon, reduced to just {id, accountName} before send"
+        allocation: "mapPaymentInvoiceDTOs / mapPaymentBillingDTO -- rebuilt from the on-screen grids (populated by the two lookups above), stripped down to {id, number, date, amount, dueDate, pendingAmt, taxAmt, receivedAmt} per row"
+        advance_only: "mapPaymentSalesOrderDTOs / mapPaymentsComplaintsDTO -- only populated when type == 'CADV' (advance payment), empty array otherwise"
+      note: "the form collects more fields than actually get sent -- an explicit allow-list drops ~15 form fields (contacts, dispatch address, existing-account flags, terms/mode text fields, etc.) before the request goes out"
+    response_used: none
+    processing: "creates/updates the Payment record; UI does not read back an id or status, it just navigates away on success"
+    backward_link: "forward only -- Payment stores which invoices/bills it settles (mapPaymentInvoiceDTOs/mapPaymentBillingDTO); whether Invoice/Billing themselves store a reverse pointer back to the Payment(s) applied against them was not confirmed this pass"
+
+# ============================================================================
+# CONFIRMED OUT OF SCOPE / REPORT-ONLY (checked so they don't need re-checking)
+# ============================================================================
+reports_only:
+  - entity: credit-note (sales-report)
+    finding: "read-only report -- search/filter/export only, no create/update route exists, no invoice-adjustment logic"
+  - entity: debit-note
+    finding: "same read-only pattern, filed under inventory-report -- out of sales scope entirely"
+  - entity: sales-review
+    finding: "read-only report/PDF export only, no business logic"
+  - entity: sales-order-detailed-report
+    finding: "has a method literally named save() but it only reloads the list/resets pagination -- does not persist anything, confirmed report-only"
+
+absences:
+  - "no sales-specific dashboard exists -- only a generic dashboard (pulls Opportunity/Products/SalesApprSetup data, not quote/SO/invoice/billing/payment) plus separate inventory-dashboard/service-dashboard/purchase-dashboard. There is no dashboard surfacing sales-pipeline metrics (SO volume, invoice totals, collections, etc.)"
+  - "no third Payment type beyond RECV/CADV exists anywhere in the frontend -- not a partial enum, genuinely just two"
+
+# ============================================================================
+# NOTES worth knowing at a glance
+# ============================================================================
+notes:
+  - "Across all conversion/settlement endpoints in this pipeline, only ONE (Quote->SalesOrder) reads anything back from its response. Every other conversion -- including the two e-invoice/e-way generation calls -- fires the request and trusts the success toast, then reloads the list to re-read status flags rather than using the response body directly."
+  - "Two audit-only entities exist alongside this pipeline (a Quote<->SalesOrder link log and a SalesOrder<->Invoice link log) -- they record that a conversion happened but are not part of the request/response flow above; nothing calls them, they're populated server-side as a side effect."
+  - "Billing has TWO real upstream data sources, not one: Estimation (documented first) and AMC (found in the completeness pass) both push full line-item snapshots into a new Billing record. Contrast this with CMS -> Estimation, which is navigation-only -- clicking through shows you the CMS record, it does not pull any data into the Estimation."
+  - "The real Sales-Order-to-delivery-document flow lives in the Inventory module's 'inventory-dc' entity, not the same-sounding 'spare-dc' entity (which has a dead SalesOrderService import and does nothing with it). This pipeline's own SO->Invoice edge does not depend on or read from either DC entity -- but per flow/inventory-flow.yml, Inventory DC has its own separate, real DC->Invoice conversion, so DC does reach Invoice through a different, independent path."
+  - "Estimation's cancel is a GET while Sales Order's cancel is a PUT -- inconsistent HTTP verb choice across otherwise-parallel cancel actions."
+  - "Buy-back and normal Purchase-Order conversions both come off Sales Order but use different selection semantics: normal PO sends only the rows the user checked, buy-back sends its entire list unfiltered."
+  - "Payment's advance-payment type (CADV) branches to a completely different set of inbound lookups (Sales Order / CMS) than the standard receipt type (RECV), which pulls Invoice / Billing -- same screen, two different data sources depending on a single dropdown value."
+  - "REV 2: there are TWO GENUINELY DIFFERENT approval implementations in this pipeline, not one uniform pattern. Quote/Sales-Order/Invoice share a 'dialog-cascade' mechanic (click Approval -> GET a per-viewer session status -> one of ~9 dialogs opens). Billing/Estimation share a newer 'status-driven-footer' mechanic (one shared POST /request-approval-status endpoint, button visibility computed straight from the record's own persisted status string). Both achieve the same governance goal and both show evidence of a sequential multi-level approver chain, but the actual endpoints, request shapes, and status literals ('Approved' vs 'APPROVED') differ between the two families -- see the APPROVAL SEQUENCE section near the top of this file for the full breakdown."
+  - "REV 2: in both approval families, there is no separate 'approver' permission distinct from 'requester' anywhere in the frontend -- one flag per stage gates one shared action for everyone who has it. The server alone decides, per click (dialog-cascade) or per persisted status (status-driven-footer), whether the current viewer is the one who should request, the one who should decide, or someone who must wait."
+  - "REV 3: CRUD permissions (view/add/edit/cancel per module) and approval-workflow permissions (qtnApproval etc.) are TWO ENTIRELY SEPARATE ADMIN SYSTEMS that happen to land in the same localStorage.responseData object. CRUD is a flat per-user checkbox matrix inside User Management (no roles involved). Approval workflow (who's an approver, at what level, for which module) is authored via the completely separate sales-appr-setup/sales-appr-setup-usr screens. Don't assume editing one affects the other."
+  - "REV 3: sales-appr-setup is a real, working admin UI for defining approval hierarchies (module, ANYONE/ALL/LEVEL mode, LEVEL_1-3 sequential approvers with a numeric priority, or margin-percent-threshold routing) -- but it is never read at runtime by Quote/SO/Invoice/Billing/Estimation's own frontend code. It's the authoring surface; the enforcement is backend-only. If a user reports 'the wrong person is being asked to approve,' the fix is in this admin screen's data, not in any of the five document components."
+  - "REV 3: closed the 'how does payment actually happen' gap -- there is no direct Pay button on Invoice or Billing, payment is always initiated from a blank Payment form via account-name search, there's no frontend write-back from Payment onto Invoice/Billing (backend recomputes), and partial/multi-session payment against the same invoice is fully supported and expected, not an edge case."

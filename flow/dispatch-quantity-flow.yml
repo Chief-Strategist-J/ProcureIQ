@@ -1,0 +1,328 @@
+# SPARE-PART LIFECYCLE — complete end-to-end flow (complaint -> stock -> dispatch -> consumption)
+# created: 2026-07-06
+# rev 2 (2026-07-06 16:50): expanded from a dispatch-qty-only note into the full lifecycle,
+# per user request ("complete flow end to end, where to raise, where to add stocks, when to
+# dispatch, why everything"). Verified against BOTH Angular source AND backend Java source
+# (WorkOrderService, SpareGrnService, SparesDcService, SparesSaService, SpareEstimationService,
+# ComplaintsService, MapStoreSpares) — this file cites Java file:line same as inventory-flow.yml
+# already does for GRN->PB, so java citations here follow that precedent, not a new exception.
+# Cross-references: flow/inventory-flow.yml (product-side DC, GRN, PO — parallel structures,
+# not repeated here), flow/purchase-flow.yml (regular PO/PB), flow/sales-flow.yml (SO/DC/Invoice).
+
+# ============================================================================
+# GRAPH -- the whole journey, one screen at a time
+# ============================================================================
+graph:
+  order: >
+    CMS Complaint --(convert)--> Work Order --(raise)--> Spare Indent
+      --> [A] Spare-PO (procure) -> Spare-GRN (receive) -> MapStoreSpares (+stock)
+      --> [B] Spare-DC (dispatch) -> MapStoreSpares (-stock) -> indent.dispatchQty (DTO passthrough)
+      --> [C] Spare Estimation (bill the customer) -> indent.indentStage flips id 1->2
+      --> [D] usedQty recorded on indent (consumption) -- UNMERGED, see usedqty_consumption
+      --> [E] Spare Stock Adjustment -- manual correction, side-channel to MapStoreSpares any time
+  two_stock_movements_are_independent: >
+    Procurement (A, adds stock) and Dispatch (B, removes stock) are NOT sequenced against each
+    other by the system -- a Spare-DC can be raised against an indent whenever MapStoreSpares
+    has enough availableqty, regardless of whether that stock came from a GRN tied to THIS
+    indent's own Spare-PO or from unrelated existing warehouse stock. There is no FK chain
+    forcing "this GRN's stock must serve this indent."
+  displayed_on:
+    - entities/workOrder/detail/workOrder-detail.component.html (lines 1171, 1383, 1596 + summary rows 1267/1479/1694)
+    - entities/cms/detail/cms-detail.component.html (lines 693, 726)
+    - entities/estimation/detail/estimation-detail.component.html (line 1098)
+
+# ============================================================================
+# STEPS -- numbered end-to-end walkthrough, one row per user/system action
+# ============================================================================
+steps:
+  - step: 1
+    who: "Support agent"
+    does: "Logs a CMS Complaint against a customer's asset"
+    entity: entities/cms
+  - step: 2
+    who: "Support agent / dispatcher"
+    does: "Converts the Complaint into a Work Order"
+    endpoint: "POST api/complaints/convert-comp-to-workOrd"
+    see: complaint_to_workorder
+  - step: 3
+    who: "Field engineer"
+    does: "Opens the Work Order, raises a Spare Indent listing the parts needed to fix the asset"
+    endpoint: "POST api/workorder/spare-indent-request"
+    result: "indent created with indentStage id=1 ('Request')"
+    see: raise_indent
+  - step: 4a
+    who: "Purchase team"
+    does: "IF the needed spare isn't in stock: raises a Spare-PO against a supplier (optionally pulling the CMS indent's lines directly)"
+    endpoint: "POST api/spare-purchase-orders/createsparepurchaseorder"
+    see: spare_po
+  - step: 4b
+    who: "Warehouse team"
+    does: "Receives the Spare-PO's goods (or a repaired-asset part) as a Spare-GRN"
+    endpoint: "POST api/spares-grns"
+    result: "MapStoreSpares.availableqty incremented -- stock now on hand"
+    see: spare_grn
+  - step: 5
+    who: "Warehouse team"
+    does: "Raises a Spare-DC against the indent (pulled via the CMS complaint) once stock is available, ships the part"
+    endpoint: "POST api/spares-dcs"
+    result: "MapStoreSpares.availableqty decremented; indent.dispatchQty updated CLIENT-SIDE only on next indent PUT (no live backend join)"
+    see: spare_dc
+  - step: 6
+    who: "Estimator / billing team"
+    does: "Selects the now-'Request'-stage indent lines and raises a Spare Estimation to bill the customer"
+    endpoint: "POST api/spare-estimation"
+    result: "indent.indentStage flips id 1 -> 2 (only place this ever happens)"
+    see: spare_estimation
+  - step: 7
+    who: "Field engineer"
+    does: "UNMERGED FEATURE -- records how much of the dispatched spare was actually used while closing out the Work Order"
+    endpoint: "PUT api/workorder/spare-indent-request/{id}"
+    result: "usedQty set (validated <= dispatchQty); indentStage NOT changed by this step, no matter what"
+    see: usedqty_consumption
+  - step: "any time"
+    who: "Warehouse/inventory team"
+    does: "Manually corrects stock (miscount, transfer, damage write-off) independent of the indent lifecycle above"
+    endpoint: "POST api/spares-sa"
+    see: spare_stock_adjustment
+
+# ============================================================================
+# ASCII TREE -- same style as _logs/change.log, one tree, no boxes/renderer
+# needed, reads top-to-bottom as the single source of truth for the whole flow
+# ============================================================================
+ascii_tree: |
+  CMS Complaint
+  └── convert  [POST api/complaints/convert-comp-to-workOrd]  (Support Agent)
+      └── Work Order  (created, stage "Unscheduled")
+          └── raise indent  [POST api/workorder/spare-indent-request]  (Field Engineer)
+              └── Spare Indent  [indentStage id=1 "Request", backend default]
+                  ├── stock check -- MapStoreSpares.availableqty > 0 ?
+                  │   ├── NO  -> procure
+                  │   │   └── Spare-PO  [POST api/spare-purchase-orders/createsparepurchaseorder]  (Purchase Team)
+                  │   │       └── approved
+                  │   │           └── Spare-GRN  [POST api/spares-grns]  (Warehouse Team)
+                  │   │               └── MapStoreSpares.availableqty += receivedqty
+                  │   │                   └── (cancel-sgrn does NOT reverse this add -- phantom stock risk)
+                  │   └── YES -> already on hand
+                  │       └── (Spare-GRN can also be raised directly off a repaired asset, no PO at all)
+                  ├── dispatch  [GET api/complaints/dc-reference to pull indent lines]  (Warehouse Team)
+                  │   └── Spare-DC  [POST api/spares-dcs]
+                  │       └── MapStoreSpares.availableqty -= sentqty  (throws if it would go negative)
+                  │           └── (cancel-sdc does NOT reverse this subtract either)
+                  │       └── dispatchQty on indent: NOT recomputed here -- pure DTO passthrough,
+                  │           no backend join exists between Spare-DC and the indent record
+                  ├── estimate  [POST api/spare-estimation]  (Estimator, selects "Request"-stage lines)
+                  │   └── indentStage flips id 1 -> 2   <-- the ONLY place this transition happens anywhere
+                  ├── consume  [PUT api/workorder/spare-indent-request/{id} { usedQty }]  (Field Engineer)
+                  │   │   UNMERGED -- branch feature/workorder-edit-indent-used-qty, commit cd51b8b02
+                  │   └── validated 0 <= usedQty <= dispatchQty; indentStage NEVER changed by this step
+                  │       └── (no automatic closeout exists anywhere when usedQty reaches dispatchQty)
+                  └── stock adjustment  [POST api/spares-sa]  (Warehouse/Inventory Team, any time, side channel)
+                      └── MapStoreSpares.availableqty +/- manually (independent of the indent chain above)
+
+# ============================================================================
+# STAGE 0 -- CMS COMPLAINT -> WORK ORDER
+# ============================================================================
+complaint_to_workorder:
+  entity: entities/cms
+  trigger: "openDialogWo() (cms-detail.component.ts:482-485) -> conversionCMStoWorOrd(cmsId) (cms-detail.component.ts:515-547)"
+  endpoint: {method: POST, path: "api/complaints/convert-comp-to-workOrd (cms.service.ts:57-58)"}
+  cardinality: "one complaint -> one-or-many Work Orders (parent + child WOs). isChild flag distinguishes repeat conversions (cms-detail.component.ts:278-286, 520-527); workordermodule: isAlreadyConverted ? 5 : 3 picks which WO module the child lands in."
+  backend: "ComplaintsService.convertComplaintToWorkOrder (ComplaintsService.java:860-999+) -- creates a full WorkOrder row, sets stage 'Unscheduled' (workOrderStageRepository.findByStageName, :900), links workOrder.setComplaints(complaint) (:885)"
+  indent_not_touched_here: "confirmed -- zero Indent/IndentStage references anywhere in convertComplaintToWorkOrder (grepped the whole method body). Raising an indent is a fully separate, later, manual step against the WO this method just created -- not automatic."
+  gate: "this.cms?.isWoConverted boolean on ICms (cms.model.ts:61) prevents re-showing the initial convert dialog once done"
+
+# ============================================================================
+# STAGE 1 -- RAISE SPARE INDENT (on the Work Order)
+# ============================================================================
+raise_indent:
+  entity: entities/workOrder
+  why: "a technician/engineer working a Work Order needs specific spare parts to fix the asset -- the indent is the request-for-parts paperwork, separate from actually shipping them (that's Spare-DC, stage 3)"
+  ui_entry: "openIndentDiloge(workOrder) (workOrder-detail.component.ts:1228-1252) -- 'Raise Spare Indent' dialog, button at workOrder-detail.component.html:49,67"
+  add_line: "spareIndentAddForm() (workOrder-detail.component.ts:1363-1372) -- pushes {spares, qty, spareInfo, productOptions} row"
+  client_validation: "isIndentValid() (workOrder-detail.component.ts:997-1010) -- requires userId + reason, and >=1 filled spare line (spares.id + qty) OR >=1 service-charge line"
+  submit: "indentSpareSubmit() (workOrder-detail.component.ts:1606-1669) -> WorkOrderService.postIndent(payload, userId) (:1649)"
+  endpoint: {method: POST, path: "api/workorder/spare-indent-request (workOrder.service.ts:46-58, userId as query param)"}
+  payload:
+    - "reason, workorder (full WO object), complaints (nested ref, workOrder-detail.component.ts:1614), iscancel: false"
+    - "mapSpareIndentRequests: [{ spares, qty, spareInfo }]"
+    - "mapIndentServiceChargeRequest: [{...}] -- parallel non-spare-parts line, same dialog"
+    - "estimationId -- only appended if this.estimationId set, i.e. WO was itself spawned from an Estimation (:1643-1645)"
+    - "indentStage: NEVER sent on create -- only a commented-out leftover (workOrder-detail.component.ts:1583)"
+  backend_default_stage: "WorkOrderService.createOrUpdateIndent (WorkOrderService.java:1183-1277) -- on create (id==null), hard-codes new IndentStage with setId(1L) (:1205-1209), no name lookup. Update branch never re-touches indentStage."
+  dead_ui: "a 'Stage' dropdown bound to indentStage exists but is entirely commented out in the template (workOrder-detail.component.html:2252-2268) -- disabled feature, backing TS still runs but has no live consumer"
+  cms_direct_raise: "does NOT happen -- confirmed by grep, zero occurrences of postIndent/spare-indent-request/indentSpareSubmit anywhere in cms-detail.component.ts. CMS only READS indents via getIndentListComplaint (cms-detail.component.ts:579 -> workOrder.service.ts:68-73, same backend resource filtered by complaintId)."
+  estimation_direct_raise: "does NOT happen either -- estimation-detail.component.ts:338-342 and estimation-update.component.ts:3422-3465 only READ existing indents (getIndentListEstimation / getIndentList) to populate selection dialogs before posting to api/spare-estimation. No POST to spare-indent-request anywhere under entities/estimation/."
+
+# ============================================================================
+# indent_stage -- values and the ONE transition that exists
+# ============================================================================
+indent_stage:
+  entity_note: "backend table indent_stage (IndentStage.java:16-39) -- id, stage (String,unique,45), isactive, isremove, ispredefined. Plain string rows in DB, NOT a Java enum, and NOT seeded via any liquibase changelog found in src/main/resources/config/liquibase/ -- rows exist only in the live DB, so the full stage list can't be enumerated from source. Only two IDs are ever referenced in code."
+  id_1: "default on indent creation (WorkOrderService.java:1208) -- Angular-side string-compares this as indent.indentStage?.stage === 'Request' everywhere (e.g. workOrder-detail.component.ts:1772,1790,1807)"
+  id_2: "set by SpareEstimationService.save at 4 call sites (SpareEstimationService.java:377-379, 454-456, 798-800, 877-879), every time an indent's spares/service-charges get pulled into a Spare Estimation (both the 'append to existing open estimation' and 'create new estimation' branches). Inline dev comments literally say `// 'Close' stage` / `// Set ID to -2 for 'close' condition`, but Angular-side string-compares this same transition point as indent.indentStage?.stage === 'Estimate' (workOrder-detail.component.html:1140,1352,1565) -- the comment text and the Angular label disagree; true DB string for id=2 not independently verified, flagging as a naming discrepancy rather than resolving it either way."
+  only_transition: "id 1 -> id 2, and ONLY via SpareEstimationService.save. No code path anywhere (frontend or backend) moves an indent's stage any other way -- specifically, recording usedQty (stage 4/D below) never touches indentStage, confirmed on both sides."
+  orphaned_lookalike: "domain/SpareIndent.java also has its own IndentStage field (:39) but is never imported by any service or resource class (confirmed via grep) -- dead/legacy entity, not the one actually used. Don't confuse with the real Indent entity WorkOrderService/SpareEstimationService operate on."
+
+# ============================================================================
+# STAGE 2A -- SPARE-PO (procurement, stock inward source #1)
+# ============================================================================
+spare_po:
+  resourceUrl: "api/spare-purchase-orders (spare-po.service.ts:37); resourceUrlCMS: api/complaints (:47); resourceUrlCancel: api/service-po (:48)"
+  create: {method: POST, path: "api/spare-purchase-orders/createsparepurchaseorder (spare-po.service.ts:50-57)"}
+  update: {method: PUT, path: "api/spare-purchase-orders/update/{id} (:59-64)"}
+  pattern: "identical shape to the regular Purchase Order (flow/purchase-flow.yml) -- same createpurchaseorder-suffix convention, same approval cascade: requestForApproval POST .../request-approval-status (:118-121), purchaseorderrequestapproval (:528-540), purchaseorderdocapproval (:545-578)"
+  cancel: {method: GET, path: "api/service-po/cancel-spo (:134-135)"}
+  cms_linkage: "a Spare-PO can be raised directly off a CMS complaint's indent lines -- spare-po.service.ts:723-727 getIndentListComplaint() hits GET api/complaints/dc-reference?complaintId={id} (same endpoint Spare-DC and inventory pull already document), called live from spare-po-update.component.ts:2373-2384 when attaching a CMS reference while creating the PO"
+  dead_alternative: "appPurchaseorder() (:494-496) hits GET api/spare-purchase-orders/mappoproductforgrn/{id}, zero callers anywhere -- same dead-copy pattern flow/inventory-flow.yml already flagged for the regular PO"
+  real_po_to_grn_pull: "findPoProducts(id, isGrn) -> GET api/spare-purchase-orders/spo-spb/{id}?isGrn=true (:93-102) -- this is the one actually called from Spare-GRN, see below"
+  po_to_pb_direct: "a Spare Purchase Bill can also be built straight off a Spare-PO without a GRN: spare-pb-update.component.ts:1864 calls findPoProducts(id, isGrn=false), same manual-alternative shape flow/inventory-flow.yml notes for products"
+  possible_bug: "spare-pb-update.component.ts:468 calls the REGULAR PurchaseOrderService.findPoProducts (not SparePOService) inside a Spares Purchase Bill screen -- both services are injected in that component (:221,230); looks like copy-paste, not traced further whether it's reachable/live"
+
+# ============================================================================
+# STAGE 2B -- SPARE-GRN (stock receipt, the real "add stock" step)
+# ============================================================================
+spare_grn:
+  naming_correction: "entities/spare-invn/ is NOT a stock master -- it's the Spare-GRN create/edit screen. HTML literally titled 'Create Spare GRN' (spare-invn-update.component.html:6-7); model ISpareInv is really a GRN DTO (spareGrndate, grnNo, poamdno, spoid, mapInventoryGrnSpares -- spare-invn.model.ts:8-45)"
+  resourceUrl: "api/spares-grns (spare-invn.service.ts:34)"
+  create: {method: POST, path: "api/spares-grns (:46-49)"}
+  update: {method: PUT, path: "api/spares-grns/{id} (:53-56)"}
+  cancel: {method: GET, path: "api/spares-grns/cancel-sgrn (:525-527)"}
+  no_shared_entity_with_products_grn: "confirmed -- inventory-grn (products) has ZERO spares support (grepped model/update component for 'spare', zero hits). api/inventory-grns and api/spares-grns are fully separate REST resources/Angular modules, not one entity with a type flag."
+  two_inward_sources_into_one_screen:
+    - "PO-sourced: onSearchPOChangeSelection() (spare-invn-update.component.ts:1010-1028) -> sparePOService.findPoProducts(id, true) -> reads mapSparePurchaseOrderSparesDTO into the line-item grid"
+    - "Asset-repair-sourced (no PO at all): save() (:1311-1389) -- if the GRN is raised against a Work Order's repaired asset (woid + repair asset present), it sends mapGrnRepairAssets instead of mapInventoryGrnSparesDTO (:1375-1382) -- a part returned from a repaired unit goes straight back into stock, bypassing Spare-PO entirely"
+  backend_stock_write: "SpareGrnService.saveSparesGrn (SpareGrnService.java:155, create branch ~431+, update branch ~155+) calls updateSprStoresQtyThruGrn() at :730-732 (create) and :243-245 (update). That helper (:1016-1092) does the real increment: `availQty = product.getAvailableqty() + newReceivedSpare.getReceivedqty(); product.setAvailableqty(availQty); mapStoreSparesRepository.save(product)` (:1029-1032), creating a new MapStoreSpares row if none exists (:1036-1041). A second helper updateSparesStoresAvailQtyThroughGrn (:1094-1168, called from :642) does the same for a separate code path."
+  no_approval_gate: "stock increments synchronously on save -- there is no separate approval step gating the MapStoreSpares write"
+  cancel_does_not_reverse_stock: "cancelSpareGrn (SpareGrnService.java:1236-1249) only flips iscancel=true -- never subtracts back the availableqty it added. Canceling a Spare-GRN after the fact leaves phantom stock on the books."
+  grn_to_pb: "convertGrnToSpb() -> POST api/spare-purchase-bills/convertgrntospb (spare-invn.service.ts:521-523) -- mirrors products' GRN->PB conversion in flow/inventory-flow.yml"
+
+# ============================================================================
+# STOCK -- the real "current stock" table
+# ============================================================================
+map_store_spares:
+  entity: "MapStoreSpares.java:17-49 -- table map_stores_spares: id, availableqty (Float), isactive, spares (FK), storesid (FK). Confirmed: this IS the real per-spare-per-store on-hand stock table -- there is no other."
+  no_dedicated_angular_screen: "no Angular entity folder exists for MapStoreSpares directly -- it's written/read entirely as a side effect of the screens below, plus reported via api/spare/stock-summaryreports (spare-stockAdjustment.service.ts:301,350)"
+  writers:
+    spare_grn: "ADD (inward) -- SpareGrnService, see spare_grn.backend_stock_write above"
+    spare_dc: "SUBTRACT (outward) -- SparesDcService, see spare_dc.backend_stock_decrement below"
+    spare_stock_adjustment: "BOTH -- SparesSaService.java:271 (add: += newStockQty), :315/:320 (subtract: -= sentConversionQty), and a second add/subtract pair at :905-920 -- manual correction/transfer entries"
+    stores_service: "StoresService.java autowires MapStoreSparesRepository (line ~34) but has no actual call site found in any method body -- dead/unused injection, not a real writer"
+    work_order_service: "autowired (WorkOrderService.java:247) but not directly called in this file beyond injection -- the similarly-named stock lookup at :1351 (getIndentByWorkorderIdorComplaintId) actually reads MapStoresProducts (a different, products-side table), not MapStoreSpares. Treat as unused-in-practice here."
+  guard: "SparesDcService throws ApplicationException('No Quantity Available in the spares', ...) if a dispatch would take availableqty negative (SparesDcService.java:388,514-515) -- this is the only stock-floor check found anywhere in this chain; Spare-GRN cancel and Spare-DC cancel both skip reversing stock (see below), so cancels can already leave stock inconsistent independent of this guard"
+
+# ============================================================================
+# STAGE 3 -- SPARE-DC (dispatch, stock outward, feeds dispatchQty back)
+# ============================================================================
+spare_dc:
+  resourceUrl: "api/spares-dcs (spare-dc.service.ts:33)"
+  related_urls:
+    dcactUrls: "api/inventory-grns/inv (spare-dc.service.ts:34)"
+    doc_approval: "api/inventory-dc-doc-apprs (spare-dc.service.ts:35)"
+    report: "api/dcs (spare-dc.service.ts:36)"
+
+  inbound_pull:
+    why: "a spare-part indent (requested on a CMS complaint's Work Order) needs to actually ship from the warehouse -- Spare-DC is that dispatch paperwork"
+    from: cms_complaint_indent
+    endpoint: {method: GET, path: "api/complaints/dc-reference?complaintId={id}"}
+    called_via: "cmsService.getIndentListComplaint(submodule.id) -- cms.service.ts:86-90"
+    called_at: "spare-dc-update.component.ts:2059"
+    response_used: "mapSpareIndentRequestsDTO arrays, flattened at spare-dc-update.component.ts:2062 into sOrderAddressData -- becomes the editable line-item grid"
+    note: "a separate workOrderService.find(workOrder.woid) call exists (spare-dc-update.component.ts:689) but only builds an ASSET table from wo.mapWorkOrderProducts -- it does not touch mapSpareIndentRequests. Only the CMS route feeds indent lines into Spare-DC; a direct Work-Order-side indent pull was not found."
+
+  per_line_dispatch_qty:
+    field: sentqty
+    set_at: "spare-dc-update.component.ts:1302 -- sentqty: +element.quantitySo"
+    validation: "client-side only, via canSubmit getter (spare-dc-update.component.ts:1204-1209): quantitySo <= item.qty (qty = indent's requested amount). No explicit lower-bound check beyond a truthy/non-empty guard."
+
+  backward_pointer_to_indent:
+    confirmed: true
+    where: "spare-dc-update.component.ts:1295-1298 -- each line row sets mapIndentSpares: { id: element.id }, element.id being the id from the flattened mapSpareIndentRequestsDTO row. Travels inside mapDcSparesList on create/update."
+    caveat: "spare-dc.model.ts:43 types mapDcSparesList?: any | null -- untyped, no dedicated line-item model exists, so this pointer is present at runtime only, not compiler-enforced."
+
+  create_update:
+    create: {method: POST, path: "api/spares-dcs (spare-dc.service.ts:40-45)"}
+    update: {method: PUT, path: "api/spares-dcs/{id} (spare-dc.service.ts:47-52)"}
+    partial: {method: PATCH, path: "api/spares-dcs/{id} (spare-dc.service.ts:54-59)"}
+    request: "inventoryDc.mapDcSparesList = this.additionaladdressForm (spare-dc-update.component.ts:2392), sent at lines 2403/2405"
+    response_used: none
+
+  backend_stock_decrement:
+    confirmed: true
+    where: "SparesDcService.saveSpareDC (SparesDcService.java:196-530), mapDcSparesList loop, lines 359-406: `availQty = mapStoresSpares.getAvailableqty() - sentConversionQty` (:380), setAvailableqty(availQty) (:382), guarded by if(availQty>=0){...}else throw (:388,514-515), mapStoreSparesRepository.save() (:406)"
+    same_loop_also: "spares.setMapIndentSpares(itemsSets.getMapIndentSpares()) (:403) -- stamps the new DC line with a reference to the source indent line, but this is metadata-only, see below"
+
+  dispatchqty_resolution:
+    finding: "CONFIRMED on both sides now (was 'not confirmed' in rev 1): no PUT/PATCH from Spare-DC ever targets a WorkOrder/Indent endpoint (Angular grep: zero hits for workOrderService.update|partialUpdate under entities/spare-dc/). Backend-side: SparesDcService autowires mapIndentSparesRepository (:173) but NEVER calls it (grep for 'mapIndentSparesRepository\\.' in SparesDcService.java returns zero results)."
+    conclusion: "dispatchQty reappearing on the indent (Work Order/CMS/Estimation) after a Spare-DC save is NOT a backend write-back either -- it is purely a DTO passthrough: WorkOrderService.createOrUpdateIndent mirrors whatever dispatchQty value the CALLER sends on the next indent save (WorkOrderService.java:1241-1242, `setDispatchQty(indents.getDispatchQty() != null ? ... : 0L)` -- defaults null to 0, does not compute it from any DC record). In other words: nothing in this codebase currently RE-DERIVES dispatchQty from actual Spare-DC totals on read; it round-trips through whatever the frontend last echoed back in a PUT to the indent. This is a materially different (and more fragile) conclusion than rev 1's 'probably a backend join' guess."
+
+  approval:
+    family: dialog_cascade (same shape as inventory_dc, see flow/sales-flow.yml's approval_cycle anchor)
+    request: {method: POST, path: "api/spares-dcs/inventorymarginrequestapproval (spare-dc.service.ts:405-417)"}
+    check_pending: {method: GET, path: "api/spares-dcs/getinventorydcsdocrequestapproval (spare-dc.service.ts:422-429)"}
+    decide: {method: POST, path: "api/spares-dcs/inventorydocapproval (spare-dc.service.ts:470-499)"}
+
+  cancel:
+    endpoint: {method: GET, path: "api/spares-dcs/cancel-sdc (spare-dc.service.ts:573-574)"}
+    note: "GET, not POST -- same inconsistent-verb pattern already noted for Estimation's cancel in flow/sales-flow.yml"
+    backend: "cancelSparesDc (SparesDcService.java:1726-1741) mirrors cancelSpareGrn's behavior -- only flags iscancel=true, never reverses the MapStoreSpares decrement it made on dispatch. Cancelling a Spare-DC does NOT give the stock back."
+
+# ============================================================================
+# STAGE 4 -- SPARE ESTIMATION (bill the customer for dispatched/used spares)
+# ============================================================================
+spare_estimation:
+  entity: entities/estimation
+  why: "converts one or more 'Request'-stage indent lines into a customer-facing cost estimate -- this is also the ONLY place indentStage ever moves (see indent_stage.only_transition above)"
+  trigger: "submitSelectedIndentsModule4() (workOrder-detail.component.ts:1819-1991), filters checkbox-selected indents to indentStage?.stage === 'Request' only (enforced upstream at :1770-1817), repackages mapSpareIndentRequests into modifiedSpareIndentRequests carrying spareIndent: {..., indentStage} (:1899-1908)"
+  endpoint: {method: POST, path: "api/spare-estimation (estimation.service.ts:38,52-58)"}
+  sibling_paths: "same select-Request-then-convert shape repeats for module 5/RPR (workOrder-detail.component.ts:2175-2481) and the single-indent variant indentEstimatePostModule4 (:1993+)"
+  backend_stage_flip: "SpareEstimationService.save (SpareEstimationService.java:301-1096) -- 4 call sites (:377-379, 454-456, 798-800, 877-879) covering both 'append to existing open estimation for this WO' and 'create brand-new estimation' branches, spares and service-charges separately -- each does spareIndentRepository.findById(...).setIndentStage(id=2).spareIndentRepository.save(indent)"
+  estimation_reads_only: "estimation-detail.component.ts:338-342 (getIndentListEstimation) and estimation-update.component.ts:3422-3465 (handleWorkOrderSelection -> getIndentList) only READ indent data to populate selection UI before the same api/spare-estimation POST -- no separate create-indent path exists under entities/estimation/"
+
+# ============================================================================
+# STAGE 5 -- CONSUMPTION (usedQty) -- NOT YET MERGED
+# ============================================================================
+usedqty_consumption:
+  status: "does NOT exist on the current working tree (branch fix/inventory-grn-serial-ref-ui, HEAD d3a95c6f5). Lives only on unmerged branch feature/workorder-edit-indent-used-qty, commit cd51b8b02 ('feat: add Edit Indent action to record used quantity', jaydeep.v@blute.co.in, 2026-07-06). Documenting here as in-flight/near-term since it completes the lifecycle -- verify it has actually merged before trusting these line numbers against a future checkout."
+  guard: "openEditIndentDiloge(indent) refuses to open if workOrder?.workorderstage?.name === 'Completed' (alert + return)"
+  edit_button_visibility: "only rendered when indent.indentStage?.stage === 'Request' -- i.e. once an indent has moved to id=2/'Estimate' via Stage 4, usedQty can no longer be recorded against it through this dialog"
+  validation: "isEditIndentValid() -- requires non-empty editIndentReason, and every line 0 <= usedQty <= dispatchQty (Number(item.usedQty) <= Number(item.dispatchQty || 0))"
+  submit: {method: PUT, path: "api/workorder/spare-indent-request/{indentId} (WorkOrderService.updateIndent, optional userId query param)"}
+  payload: "{ id, workorder, complaints, reason, iscancel: false, mapSpareIndentRequests: [...usedQty as Number] } -- indentStage is never included"
+  no_stage_change_on_full_consumption: "confirmed on both Angular and Java sides -- neither the PUT payload nor createOrUpdateIndent's update branch (WorkOrderService.java:1197-1214) ever touches indentStage here. If usedQty reaches dispatchQty, the indent stays wherever its stage already was (id=1/'Request' unless separately moved to id=2 via Stage 4) -- there is no automatic closeout on full consumption anywhere in this codebase. Genuine functional gap, not a research miss."
+
+# ============================================================================
+# SIDE-CHANNEL -- SPARE STOCK ADJUSTMENT (manual correction, any time)
+# ============================================================================
+spare_stock_adjustment:
+  resourceUrl: "api/spares-sa (spare-stockAdjustment.service.ts:33)"
+  create: {method: POST, path: "api/spares-sa (:46-51)"}
+  cancel: {method: GET, path: "api/spares-sa/cancel-ssa?sparesSaId&cancelRemarks (:353-355)"}
+  backend: "SparesSaService.java -- adds stock at :271 (+= newStockQty), subtracts at :315/:320 (-= sentConversionQty) and a second add/subtract pair at :905-920. This is the manual override/transfer path into MapStoreSpares, independent of GRN/DC -- use it to trace a stock discrepancy that isn't explained by GRN or DC history alone."
+  to_pb: "stockAdjustmentToPbConvert() -> POST api/purchase-bills/convertstockAdjustmenttopb (:77-79)"
+  report_endpoint: {method: GET, path: "api/spare/stock-summaryreports (spare-stockAdjustment.service.ts:301), list variant .../list (:350)"}
+  report_nature: "no Angular write path targets this endpoint directly -- consistent with it being a backend-computed rollup over MapStoreSpares rather than its own stored table, but this specific point is unverified (Java side of the report query wasn't traced this pass)"
+
+# ============================================================================
+# STAGE -- INVENTORY-DC (product dispatch; sentqty) -- POINTER ONLY, different family
+# ============================================================================
+inventory_dc_product_dispatch:
+  see: flow/inventory-flow.yml#inventory_dc
+  summary_for_this_doc: >
+    Products (not spares) follow a completely parallel path off a Sales Order, not a CMS
+    Complaint/Indent: entities/inventory-dc, GET api/sales-orders/mapsoproductforinventorydc/{id}
+    -> per-line sentqty (0 < sentqty <= qty) -> POST/PUT api/inventory-dcs -> mapInventoryDcProducts.
+    Fully documented in flow/inventory-flow.yml. Do not conflate with the spares chain above --
+    they share no entities, no endpoints, and no stock table (inventory-dc's product stock is a
+    separate mechanism from MapStoreSpares, not covered by this file).
+
+# ============================================================================
+# NOTES -- things worth remembering next time a "spare dispatch/stock is wrong" bug shows up
+# ============================================================================
+notes:
+  - "Two unrelated 'dispatch' concepts: (1) sentqty on inventory-dc, product dispatch off a Sales Order (flow/inventory-flow.yml); (2) dispatchQty, the spares field on Work Order/CMS/Estimation fed by Spare-DC saves against a CMS indent. This file only covers (2) and its full surrounding lifecycle."
+  - "dispatchQty is a DTO passthrough, not a computed value, on BOTH the frontend (verbatim template interpolation) and backend (WorkOrderService.java:1241-1242 mirrors whatever the last PUT sent, defaulting null to 0). If a user reports 'dispatched qty is wrong,' the bug is most likely a stale/wrong value some earlier PUT echoed back, not a live join against Spare-DC records -- there is no live join anywhere in this codebase."
+  - "MapStoreSpares.availableqty is the single real stock number. It has exactly 3 writers: Spare-GRN (+), Spare-DC (-), Spare Stock Adjustment (+/-). Neither GRN cancel nor DC cancel reverses their own stock effect -- cancelling either leaves stock permanently off by the cancelled amount. If stock looks wrong, check for cancelled GRNs/DCs first."
+  - "indentStage only ever moves 1 -> 2, only via SpareEstimationService.save (raising a Spare Estimation off the indent). There is no stage for 'fully dispatched,' 'fully used,' or 'closed' beyond that single Estimate transition -- recording usedQty (Stage 5, itself still unmerged) never changes stage at all."
+  - "Spare-DC's indent pull is CMS-only (api/complaints/dc-reference) -- there is no confirmed Work-Order-side equivalent, even though dispatchQty is also displayed on the Work Order detail page itself."
+  - "domain/SpareIndent.java is an orphaned/legacy entity with its own unused IndentStage field -- don't confuse it with the real Indent entity WorkOrderService and SpareEstimationService operate on."
+  - "indent_stage DB rows are not seeded via any liquibase changelog in this repo -- only ids 1 and 2 are referenced anywhere in Java/Angular source, so the full stage vocabulary can't be enumerated from source control alone."
