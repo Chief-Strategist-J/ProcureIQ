@@ -1,0 +1,71 @@
+name: Database Backup to Backblaze B2
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    # Run automatically every day at midnight UTC
+    - cron: '0 0 * * *'
+  # Allow manual trigger from the GitHub Actions UI
+  workflow_dispatch:
+
+jobs:
+  db-backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+
+      - name: Install Dependencies
+        run: |
+          cd packages/python/procureiq-python
+          poetry install --no-interaction
+
+      - name: Set up Database & Run Backup
+        env:
+          # Backblaze B2 Credentials
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+          B2_BUCKET_ID: ${{ secrets.B2_BUCKET_ID }}
+          B2_BUCKET_NAME: ${{ secrets.B2_BUCKET_NAME }}
+          
+          # Database Connection (To connect to your live/prod DB, set these in Repository Secrets)
+          DB_HOST: ${{ secrets.DB_HOST || 'localhost' }}
+          DB_PORT: ${{ secrets.DB_PORT || '5432' }}
+          DB_USER: ${{ secrets.DB_USER || 'postgres' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'postgres' }}
+          DB_NAME: ${{ secrets.DB_NAME || 'procureiq' }}
+          
+          # If backing up a local CI container
+          DB_CONTAINER_NAME: "procureiq-alloydb-local"
+        run: |
+          # 1. Start database container if backing up a local CI state (optional)
+          # If connecting directly to a remote database host via DB_HOST, you can comment this out.
+          if [ "${{ secrets.DB_HOST }}" = "" ]; then
+            echo "No remote DB_HOST secret found. Starting local Docker database container for backup test..."
+            docker compose up -d alloydb-omni
+            
+            # Wait for AlloyDB to start up and initialize
+            echo "Waiting for database to initialize..."
+            sleep 15
+          fi
+
+          # 2. Run the backup & upload commands using Python Tool
+          cd packages/python/procureiq-python
+          
+          echo "Running database backup..."
+          poetry run db-b2 backup
+          
+          echo "Uploading database backup to Backblaze B2..."
+          poetry run db-b2 upload

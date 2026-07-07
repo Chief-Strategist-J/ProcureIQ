@@ -1,0 +1,27 @@
+# Root gitignore to protect repository size and ignore database backups
+
+# Databases & Backups
+*.sql
+*.sql.gz
+*.db
+deploy/alloydb/local/backups/
+
+# Logs & temp files
+/logs/
+*.log
+
+# Dependency and build directories
+node_modules/
+target/
+.gradle/
+build/
+bin/
+dist/
+out/
+.env
+.env.local
+.env.backup
+
+# OS files
+.DS_Store
+Thumbs.db
