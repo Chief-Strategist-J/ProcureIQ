@@ -32,7 +32,7 @@ jobs:
       - name: Install Dependencies
         run: |
           cd packages/python/procureiq-python
-          poetry install --no-interaction
+          poetry install --no-interaction --no-root
 
       - name: Set up Database & Run Backup
         env:
