@@ -29,3 +29,11 @@
     └── Changes:
         ├── rename -> Removed flow/dispatched-quantity.yml and replaced with flow/dispatch-quantity-flow.yml
         └── addition -> Added flow/inventory-flow.yml, flow/purchase-flow.yml, and flow/sales-flow.yml
+
+[2026-07-07 15:54:23] Integrated shadcn UI and added dark dashboard
+└── File: packages/node/procureiq-nextjs/
+    ├── Choice: Configured shadcn UI with dark mode layout and dashboard block
+    └── Changes:
+        ├── initialize -> Initialized shadcn UI and installed packages
+        ├── components -> Added all ui components and dashboard-01 block
+        └── integration -> Modified layout.tsx and page.tsx to render dashboard directly
