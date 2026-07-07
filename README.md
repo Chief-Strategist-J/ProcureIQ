@@ -12,6 +12,11 @@ ProcureIQ is a multi-service procurement platform containing Spring Boot (Java),
 
 ## Local Development (Multi-Service Deploy)
 
+Build the Docker images for all application services:
+```bash
+./build-images.sh
+```
+
 Run all services together locally with Docker Compose:
 ```bash
 docker compose up --build

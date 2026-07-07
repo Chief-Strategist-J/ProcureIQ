@@ -37,3 +37,10 @@
         ├── initialize -> Initialized shadcn UI and installed packages
         ├── components -> Added all ui components and dashboard-01 block
         └── integration -> Modified layout.tsx and page.tsx to render dashboard directly
+
+[2026-07-07 16:01:22] Updated fonts and added helper docker build script
+└── File: /home/btpl-lap-22/live/ProcureIQ/
+    ├── Choice: Replaced default Geist fonts with Plus Jakarta Sans and JetBrains Mono, and added build-images.sh
+    └── Changes:
+        ├── fonts -> Changed typography in layout.tsx to Plus Jakarta Sans and JetBrains Mono
+        └── script -> Created build-images.sh to automate Docker image builds across all packages
