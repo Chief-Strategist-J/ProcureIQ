@@ -52,3 +52,89 @@ command_workflows:
         internal_sequence:
           - "docker exec -i procureiq-alloydb-local psql -U postgres -d procureiq -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'"
           - "gunzip -c deploy/alloydb/local/backups/latest_db_backup.sql.gz | docker exec -i procureiq-alloydb-local psql -U postgres -d procureiq"
+
+ascii_visual_flow: |
+  =========================================================================================
+                                       SYSTEM ARCHITECTURE
+  =========================================================================================
+  
+   [ Local Machine ]                                            [ Cloud Services ]
+   ┌──────────────────────────────────────────────┐
+   │ Codebase Root: /ProcureIQ                    │
+   │                                              │             ┌────────────────────────┐
+   │  ├── .git/hooks/                             │             │      GitHub Repo       │
+   │  │    ├── pre-push                           │             │ (Code version control) │
+   │  │    └── post-merge                         │             └───────────▲────────────┘
+   │  │                                           │                         │
+   │  ├── scripts/ (Versioned Git Hook copies)    │                         │ Git SSH
+   │  │                                           │                         │ Push/Pull
+   │  └── packages/python/procureiq-python/       │                         │
+   │       └── scripts/                           │                         │
+   │            └── db_b2.py (Python B2 Utility)  │                         │
+   └──────────────────────┬───────────────────────┘                         │
+                          │                                                 │
+     Docker Volume Mount  │                                                 │
+                          ▼                                                 │
+   ┌──────────────────────────────────────────────┐                         ▼
+   │ Docker Container: "procureiq-alloydb-local"  │             ┌────────────────────────┐
+   │ (Image: google/alloydbomni:15)               │             │      Backblaze B2      │
+   │                                              │             │  Bucket Name: crm2026  │
+   │  └── Database: "procureiq"                   │             │  (Object Cloud Storage)│
+   └──────────────────────────────────────────────┘             └────────────────────────┘
+  
+  
+  =========================================================================================
+                                      DETAILED COMMAND FLOW
+  =========================================================================================
+  
+  1. 📤 THE PUSH WORKFLOW (Backup & Upload)
+     User Command: git push origin main
+  
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 1. Git triggers: .git/hooks/pre-push                                              │
+     │    Command: python3 scripts/db_b2.py backup                                       │
+     └─────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 2. Extracts & Compresses local DB state:                                          │
+     │    Command: docker exec -t procureiq-alloydb-local pg_dump -U postgres            │
+     │             -d postgres | gzip > backups/latest_db_backup.sql.gz                  │
+     └─────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 3. Uploads compressed backup to cloud (Overwrites/Updates B2):                    │
+     │    Command: python3 scripts/db_b2.py upload                                       │
+     │    Under the Hood: B2 REST API POST (Authorized via .env.backup secrets)          │
+     └─────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 4. Pre-push hook completes (exit code 0). Git push proceeds:                      │
+     │    Command: git push origin main                                                  │
+     └───────────────────────────────────────────────────────────────────────────────────┘
+  
+  
+  2. 📥 THE PULL WORKFLOW (Download & Restore)
+     User Command: git pull origin main
+  
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 1. Git completes fetch & merge, then triggers: .git/hooks/post-merge              │
+     │    Command: python3 scripts/db_b2.py download                                     │
+     └─────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 2. Downloads database backup from B2:                                             │
+     │    Under the Hood: B2 REST API GET to pull latest_db_backup.sql.gz                │
+     └─────────────────────────┬─────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+     ┌───────────────────────────────────────────────────────────────────────────────────┐
+     │ 3. Clears and restores local database:                                            │
+     │    Command: python3 scripts/db_b2.py restore                                      │
+     │    Under the Hood:                                                                │
+     │       a. docker exec -i procureiq-alloydb-local psql -c "DROP SCHEMA..."          │
+     │       b. gunzip -c backups/latest_db_backup.sql.gz | docker exec -i ... psql      │
+     └───────────────────────────────────────────────────────────────────────────────────┘
