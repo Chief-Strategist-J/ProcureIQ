@@ -1,15 +1,9 @@
 #!/bin/bash
-
-# Git post-merge hook to automatically download and restore database using Python tool directly
 echo "------------------------------------------------------------"
 echo "Git Post-Merge Hook: Syncing local database (Python)..."
 echo "------------------------------------------------------------"
-
-# Navigate to python app directory and run the script directly with python3
 cd packages/python/procureiq-python
-
 python3 scripts/db_b2.py download && python3 scripts/db_b2.py restore
-
 if [ $? -eq 0 ]; then
     echo "------------------------------------------------------------"
     echo "Git Post-Merge Hook: Database successfully synced with B2!"
