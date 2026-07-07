@@ -55,12 +55,10 @@ jobs:
           # 1. Start database container if backing up a local CI state (optional)
           # If connecting directly to a remote database host via DB_HOST, you can comment this out.
           if [ "${{ secrets.DB_HOST }}" = "" ]; then
-            echo "No remote DB_HOST secret found. Starting local Docker database container for backup test..."
-            docker compose up -d alloydb-omni
-            
-            # Wait for AlloyDB to start up and initialize
-            echo "Waiting for database to initialize..."
-            sleep 15
+            echo "No DB_HOST secret found in repository secrets."
+            echo "Skipping database backup because there is no target remote database configured."
+            echo "Please set DB_HOST, DB_USER, DB_PASSWORD, and DB_NAME in your GitHub Secrets to enable backups."
+            exit 0
           fi
 
           # 2. Run the backup & upload commands using Python Tool
