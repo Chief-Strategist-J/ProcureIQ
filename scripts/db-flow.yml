@@ -1,0 +1,54 @@
+architecture:
+  local_environment:
+    codebase_root: "/home/btpl-lap-22/live/ProcureIQ"
+    git_hooks:
+      pre_push: ".git/hooks/pre-push"
+      post_merge: ".git/hooks/post-merge"
+    hooks_backup_directory: "scripts/"
+    python_utility_script: "packages/python/procureiq-python/scripts/db_b2.py"
+    local_backup_archive: "deploy/alloydb/local/backups/latest_db_backup.sql.gz"
+  docker_container:
+    name: "procureiq-alloydb-local"
+    image: "google/alloydbomni:15"
+    database_name: "procureiq"
+    database_user: "postgres"
+  cloud_services:
+    code_repository:
+      platform: "GitHub"
+      branch: "main"
+    object_storage:
+      provider: "Backblaze B2"
+      bucket_name: "crm2026"
+      bucket_id: "9d16e04a559830cd93f20411"
+
+command_workflows:
+  push_flow:
+    trigger: "git push origin main"
+    steps:
+      - step: 1
+        action: "Trigger pre-push hook"
+        command: "python3 scripts/db_b2.py backup"
+      - step: 2
+        action: "Export & compress local database"
+        command: "docker exec -t procureiq-alloydb-local pg_dump -U postgres -d procureiq | gzip > deploy/alloydb/local/backups/latest_db_backup.sql.gz"
+      - step: 3
+        action: "Upload backup file to Backblaze B2"
+        command: "python3 scripts/db_b2.py upload"
+        api_method: "B2 REST API POST (Authorized via .env.backup credentials)"
+      - step: 4
+        action: "Resume Git push on hook success"
+        command: "git push origin main"
+
+  pull_flow:
+    trigger: "git pull origin main"
+    steps:
+      - step: 1
+        action: "Trigger post-merge hook after code pull"
+        command: "python3 scripts/db_b2.py download"
+        api_method: "B2 REST API GET to pull latest_db_backup.sql.gz"
+      - step: 2
+        action: "Clean and restore local database"
+        command: "python3 scripts/db_b2.py restore"
+        internal_sequence:
+          - "docker exec -i procureiq-alloydb-local psql -U postgres -d procureiq -c 'DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;'"
+          - "gunzip -c deploy/alloydb/local/backups/latest_db_backup.sql.gz | docker exec -i procureiq-alloydb-local psql -U postgres -d procureiq"
