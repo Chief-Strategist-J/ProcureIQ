@@ -4,3 +4,21 @@
     └── Changes:
         ├── documentation -> Add Dispatched Quantity flow reference mapping mechanism A and B
         └── flow/dispatched-quantity.yml -> Added new flow file to document dispatched quantity flow
+
+[2026-07-07 15:36:13] Created AlloyDB setup (Local, GCP & CLI Wrapper)
+└── File: deploy/alloydb/
+    ├── Choice: Standalone script CLI wrapping Docker Compose and Terraform, with strictly no comments
+    └── Changes:
+        ├── local-dev -> Docker-compose setup for AlloyDB Omni
+        ├── gcp-deploy -> Terraform configuration for Private VPC and AlloyDB Cluster/Instance
+        ├── management -> Executable alloydb-cli.sh wrapper script
+        └── documentation -> README.md documenting the files and all CLI commands
+
+[2026-07-07 15:39:11] Dockerized application services and integrated AlloyDB
+└── File: /home/btpl-lap-22/live/ProcureIQ/
+    ├── Choice: Multi-stage Dockerfiles and top-level docker-compose orchestrating all apps
+    └── Changes:
+        ├── Dockerfiles -> Created Dockerfiles for springboot, python, and nextjs without comments
+        ├── entrypoint -> Added minimal main.py for FastAPI service
+        ├── orchestrate -> Created root docker-compose.yml linking all apps to AlloyDB Omni
+        └── documentation -> Created root README.md summarizing project structure and commands

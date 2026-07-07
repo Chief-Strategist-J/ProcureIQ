@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  alloydb-omni:
+    image: gcr.io/alloydb-omni/pg-alloydbomni:15
+    container_name: procureiq-alloydb-local
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=procureiq
+    volumes:
+      - alloydb_data:/var/lib/postgresql/data
+    restart: always
+
+  springboot-app:
+    build: ./packages/java/procureiq-springboot
+    container_name: procureiq-springboot-app
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://alloydb-omni:5432/procureiq
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+    depends_on:
+      - alloydb-omni
+    restart: always
+
+  python-app:
+    build: ./packages/python/procureiq-python
+    container_name: procureiq-python-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
+    depends_on:
+      - alloydb-omni
+    restart: always
+
+  nextjs-app:
+    build: ./packages/node/procureiq-nextjs
+    container_name: procureiq-nextjs-app
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
+    depends_on:
+      - alloydb-omni
+    restart: always
+
+volumes:
+  alloydb_data:
+    driver: local

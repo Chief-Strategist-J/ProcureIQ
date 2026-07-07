@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  alloydb-omni:
+    image: gcr.io/alloydb-omni/pg-alloydbomni:15
+    container_name: procureiq-alloydb-local
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=${ALLOYDB_PASSWORD:-postgres}
+      - POSTGRES_USER=${ALLOYDB_USER:-postgres}
+      - POSTGRES_DB=${ALLOYDB_DB:-procureiq}
+    volumes:
+      - alloydb_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  alloydb_data:
+    driver: local
