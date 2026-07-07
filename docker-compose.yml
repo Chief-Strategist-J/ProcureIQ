@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   alloydb-omni:
-    image: gcr.io/alloydb-omni/pg-alloydbomni:15
+    image: postgres:15-alpine
     container_name: procureiq-alloydb-local
     ports:
       - "5432:5432"
