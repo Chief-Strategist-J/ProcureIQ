@@ -1,4 +1,5 @@
 - alway check memory and change log for references
+- never write code from scratch alway use existing code 
 - stricty follow all the rules policies/rules/codeQuality/coupling-strength-spectrum.md, policies/rules/codeQuality/dry.md, policies/rules/codeQuality/function-parameter-limit-rule.md,
 policies/rules/codeQuality/package-namming-rules.md, policies/rules/codeQuality/prototype.md,policies/rules/codeQuality/srp.md, policies/rules/codeQuality/typecasting-rules.md
 

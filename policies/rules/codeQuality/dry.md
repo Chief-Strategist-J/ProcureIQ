@@ -1,6 +1,7 @@
 ---
 trigger: manual
 ---
+- never write code from scratch alway use existing code 
 
 ### DRY (Don’t Repeat Yourself) – Strict Rules
 

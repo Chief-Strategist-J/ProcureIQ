@@ -1,6 +1,8 @@
 ---
 trigger: always_on
 ---
+- never write code from scratch alway use existing code 
+
 ## Single Responsibility Principle — strict rules (feature-based, in depth)
 
 ### 0. Core invariant

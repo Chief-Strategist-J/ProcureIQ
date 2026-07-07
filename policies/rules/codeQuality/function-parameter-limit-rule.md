@@ -2,6 +2,7 @@
 trigger: manual
 ---
 ---
+- never write code from scratch alway use existing code 
 
 ### Function Parameter Limit Rule
 

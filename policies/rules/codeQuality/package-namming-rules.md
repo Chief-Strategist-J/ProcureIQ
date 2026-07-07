@@ -1,4 +1,5 @@
 # Package Naming Rules
+- never write code from scratch alway use existing code 
 
 1. MUST use lowercase only
 2. MUST follow ecosystem-native separator style

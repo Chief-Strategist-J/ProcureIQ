@@ -1,4 +1,5 @@
 Code Guidelines + Migration Guide
+- never write code from scratch alway use existing code 
 
 
 
