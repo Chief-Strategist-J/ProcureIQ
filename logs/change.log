@@ -44,3 +44,20 @@
     └── Changes:
         ├── fonts -> Changed typography in layout.tsx to Plus Jakarta Sans and JetBrains Mono
         └── script -> Created build-images.sh to automate Docker image builds across all packages
+
+[2026-07-08 14:41:00] Created user auth schemas and pages
+└── File: /home/btpl-lap-22/live/ProcureIQ/
+    ├── Choice: JWT-based stateless authentication with AlloyDB persistence, OpenAPI first contract
+    └── Changes:
+        ├── contracts -> Added signup/login schemas and paths to v1.yaml
+        ├── springboot-app -> Added SecurityConfig, AuthService, AuthController, User entities, and tests
+        └── nextjs-app -> Added /login and /signup pages, and linked them in page.tsx
+
+[2026-07-08 14:43:00] Reorganized package layout to vertical folder structure
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Vertical architecture aligned with policies/rules/folderStructure/api-structure.md
+    └── Changes:
+        ├── springboot-app -> Reorganized auth components to com.procureiq.springboot_app.{api.rest.v1.handlers, features.auth, infra.config}
+        └── tracing -> Added OpenTelemetry tracing spans to AuthController and AuthService
+
+

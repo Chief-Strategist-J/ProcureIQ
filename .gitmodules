@@ -7,3 +7,6 @@
 [submodule "packages/node/procureiq-nextjs"]
 	path = packages/node/procureiq-nextjs
 	url = https://github.com/Chief-Strategist-J/procureiq-nextjs.git
+[submodule "packages/voice"]
+	path = packages/voice
+	url = https://github.com/Chief-Strategist-J/voice.git
