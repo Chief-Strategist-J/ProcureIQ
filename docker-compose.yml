@@ -15,6 +15,15 @@ services:
       - ./deploy/alloydb/local/initdb.d:/docker-entrypoint-initdb.d
     restart: always
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: procureiq-jaeger
+    ports:
+      - "16686:16686" # Web UI
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    restart: always
+
   springboot-app:
     build: ./packages/java/procureiq-springboot
     container_name: procureiq-springboot-app
@@ -24,8 +33,14 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://alloydb-omni:5432/procureiq
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=postgres
+      - OTEL_SERVICE_NAME=springboot-app
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
     depends_on:
       - alloydb-omni
+      - jaeger
     restart: always
 
   python-app:
@@ -35,8 +50,10 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       - alloydb-omni
+      - jaeger
     restart: always
 
   nextjs-app:
@@ -46,8 +63,10 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
     depends_on:
       - alloydb-omni
+      - jaeger
     restart: always
 
 volumes:
