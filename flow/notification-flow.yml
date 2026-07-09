@@ -1,0 +1,103 @@
+# NOTIFICATION LIFECYCLE — complete end-to-end flow (trigger -> fan-out -> route -> delivery -> escalation)
+# created: 2026-07-09
+
+# ============================================================================
+# GRAPH -- the whole journey, one stage at a time
+# ============================================================================
+graph:
+  order: >
+    Trigger Request --(dedup check)--> Outbox Store (notifications)
+      --> [A] Fan-out (notification_recipients)
+      --> [B] Route & Resolve Channels (routing_rules, preferences)
+      --> [C] Background Delivery Worker (channel_deliveries) -> Mock Adapter (port/adapter send)
+      --> [D] Escalation Policy Monitor (escalation_runs) -> step advancement -> fallback channels
+  core_principles:
+    three_lifecycles_three_tables: >
+      1. notifications: "This happened" (Immutable outbox log, single insert).
+      2. notification_recipients / read-cursors: "Did user X see it" (Mutable, point updates and offsets).
+      3. channel_deliveries: "Did channel Y deliver it" (Mutable, append-heavy retry logs).
+  lifecycles:
+    end_user_perspective: >
+      1. TRIGGERED: A business event occurs (which may be scheduled/delayed for a future time).
+      2. DELAYED VIEW: If scheduled for the future, the user receives no push notifications, emails, or badge updates until the scheduled time passes.
+      3. RECEIVED: User receives the push notification, SMS, or email instantly once the scheduled release time arrives.
+      4. VISIBLE: User opens ProcureIQ and sees the unread badge count (+1) and active feed card (future-scheduled events remain invisible).
+      5. CLICKED/INTERACTED: User clicks the notification card, deep-linking to the specific action (e.g. Work Order).
+      6. ACKNOWLEDGED: User clicks 'Mark as Read' or dismisses the card, reducing the unread badge to 0 and resolving pending escalations.
+    system_developer_perspective: >
+      1. INGESTION: POST /api/v1/notifications registers the raw event, payload, and optional 'scheduledFor' release timestamp.
+      2. DEDUPLICATION: Service checks the dedup_key to suppress double-sending.
+      3. STORAGE: Inserts immutable audit record to notifications table with scheduled_for timestamp.
+      4. FAN-OUT: Inserts targeting mapping into notification_recipients or updates user cursors.
+      5. ROUTING & PREFERENCES: Checks active rules and user channel preferences to create channel_deliveries. If scheduled in the future, sets next_retry_at to scheduledFor.
+      6. SCHEDULER FILTER: User feeds (getNotifications, getUnreadCount) filter out and hide any notifications with a future scheduledFor timestamp.
+      7. DISPATCH & RETRY: Background worker polls queued deliveries whose next_retry_at is in the past, calling Twilio/SendGrid/FCM adapters.
+      8. ESCALATION: Policy daemon monitors timeouts to trigger override alerts if the user remains inactive.
+  displayed_on:
+    - api/rest/v1/handlers/NotificationController.java (REST entrypoints)
+    - features/notifications/service/NotificationService.java (Core business logic)
+    - features/notifications/worker/NotificationBackgroundWorker.java (Asynchronous scheduling engine)
+
+# ============================================================================
+# STEPS -- numbered end-to-end walkthrough
+# ============================================================================
+steps:
+  - step: 1
+    who: "Any System Producer Service"
+    does: "Triggers a notification for a target audience"
+    endpoint: "POST api/v1/notifications"
+    entity: "SendNotificationRequest DTO"
+  - step: 2
+    who: "NotificationService"
+    does: "Validates request and runs deduplication check using dedup_key"
+    result: "Saves unique event to notifications table; discards duplicates"
+    entity: "notifications"
+  - step: 3
+    who: "NotificationService / Fan-out"
+    does: "Fans out target scope. Targeted users get entries in notification_recipients; global broadcast relies on offset cursor checks"
+    result: "Inserts into notification_recipients with status='pending'"
+    entity: "notification_recipients"
+  - step: 4
+    who: "NotificationService / Routing Engine"
+    does: "Matches routing_rules against type code, filters out opt-outs in user preferences, and queues physical deliveries"
+    result: "Inserts records into channel_deliveries with status='queued'"
+    entity: "channel_deliveries"
+  - step: 5
+    who: "NotificationBackgroundWorker (Scheduler)"
+    does: "Processes deliveries with queued status. Dispatches via NotificationSender port to physical SMS/Email/Push adapters"
+    result: "On success, status='delivered'. On fail, triggers exponential backoff retries until max attempts reached (status='failed')"
+    entity: "channel_deliveries"
+  - step: 6
+    who: "NotificationBackgroundWorker (Scheduler)"
+    does: "Monitors active escalation runs. If unacknowledged after wait_minutes, increments step and fires fallback deliveries"
+    result: "Advances run step index; marks status='exhausted' when steps end"
+    entity: "escalation_runs"
+  - step: 7
+    who: "Target User / Recipient"
+    does: "Marks the notification as read or dismissed"
+    endpoint: "PUT api/v1/notifications/{id}/status"
+    result: "Flips recipient status to 'read' or 'dismissed', setting acknowledged_at on associated escalation runs to resolve them"
+    entity: "notification_recipients / escalation_runs"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  POST api/v1/notifications  (System Producer Event)
+  └── Deduplication Check  (NotificationService)
+      ├── DUPLICATE -> Discard Event
+      └── UNIQUE    -> Insert into `notifications` (Immutable Log)
+          ├── Fan-out writes
+          │   ├── TARGETED  -> Insert into `notification_recipients` (status="pending")
+          │   └── BROADCAST -> Dynamically checked via `user_read_cursors`
+          ├── Routing rules & preferences check
+          │   └── Queue Deliveries -> Insert into `channel_deliveries` (status="queued")
+          │       └── Delivery Scheduler  (every 5s)
+          │           └── NotificationSender.send()
+          │               ├── SUCCESS -> status="delivered", sent_at=now()
+          │               └── FAILURE -> backoff retry -> max attempts -> status="failed"
+          └── Escalation Policy initialization
+              └── Escalation Run -> Insert into `escalation_runs` (status="active")
+                  └── Escalation Scheduler  (every 10s)
+                      ├── ACKNOWLEDGED (Read/Dismissed) -> status="acknowledged" (stop)
+                      └── UNACKNOWLEDGED + TIMEOUT      -> Trigger fallback delivery -> advance step

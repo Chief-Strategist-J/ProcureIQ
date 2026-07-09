@@ -60,4 +60,43 @@
         ├── springboot-app -> Reorganized auth components to com.procureiq.springboot_app.{api.rest.v1.handlers, features.auth, infra.config}
         └── tracing -> Added OpenTelemetry tracing spans to AuthController and AuthService
 
+[2026-07-09 12:29:00] Created database migration for Notification System schema & architecture
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/database/migrations/
+    ├── Choice: Highly optimized 3NF and partitioned tables (range/hash) to handle high delivery load and audit trail
+    └── Changes:
+        ├── migrations -> Created 0001_create_notification_system.sql with strict constraints, indexes, soft-deletes and documentation
+        ├── rollback -> Created 0001_create_notification_system.rollback.sql for dependency-ordered drops
+        └── lock -> Created schema.lock targeting migration 0001
 
+[2026-07-09 12:41:00] Implemented Java backend notification system APIs and business logic
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/src/
+    ├── Choice: Explicit vertical architecture separating API endpoints (rest/v1) and business feature domains with OTEL tracing instrumentation
+    └── Changes:
+        ├── dtos -> Created 6 record classes (NotificationResponse, NotificationListResponse, SendNotificationRequest, UpdateNotificationStatusRequest, UnreadCountResponse, RegisterDeviceRequest)
+        ├── entities -> Created JPA mapping objects (NotificationType, NotificationTemplate, Notification, NotificationRecipient, UserReadCursor, Device) using native SqlTypes.JSON mapping
+        ├── repositories -> Created standard Spring Data JpaRepositories for entity operations
+        ├── service -> Coded NotificationService wrapping paginated targeted/broadcast notification fetch, status changes, device registers and sends
+        ├── handler -> Created NotificationController exposing HTTP REST endpoints instrumented with OpenTelemetry trace spans
+        └── tests -> Coded integration suite in NotificationControllerTest passing all compile and runtime runs successfully
+
+[2026-07-09 13:05:00] Implemented Notification background delivery worker & escalation engines
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/src/
+    ├── Choice: Asynchronous scheduling daemon processing outbox, quiet hours, retries and escalations using Spring Scheduling
+    └── Changes:
+        ├── entities -> Added RoutingRule, EscalationPolicy, EscalationRun, and ChannelDelivery JPA entities
+        ├── repositories -> Added corresponding JpaRepositories for new entities
+        ├── scheduling -> Enabled scheduling via @EnableScheduling on SpringbootAppApplication
+        ├── port -> Created NotificationSender interface in shared/ports/
+        ├── adapter -> Coded MockNotificationSender in infra/adapters/ wrapping vendor calls in OpenTelemetry spans
+        ├── worker -> Coded NotificationBackgroundWorker with scheduled loops processing queued deliveries (with backoffs) and advancing escalations
+        └── tests -> Added testBackgroundWorkerProcessesPendingDeliveries verifying outbox pickup to NotificationControllerTest (19/19 tests passing)
+
+[2026-07-09 13:13:00] Implemented future-scheduled notification filters and delivery deferrals
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/src/
+    ├── Choice: Defer message processing by setting initial next_retry_at to scheduledFor and filtering future dates out of feeds
+    └── Changes:
+        ├── dtos -> Expanded SendNotificationRequest with scheduledFor parameter
+        ├── service -> Updated sendNotification to record scheduledFor and set initial nextRetryAt on deliveries, and updated getNotifications/getUnreadCount to filter out future-scheduled items
+        ├── repositories -> Added countUnreadTargetedActive JPQL query to filter unread count totals by release dates
+        ├── documentation -> Updated flow/notification-flow.yml with user and system lifecycles detailing scheduling
+        └── tests -> Coded testSendScheduledNotification verifying that future-scheduled items remain invisible (20/20 tests passing)
