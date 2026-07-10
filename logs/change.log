@@ -120,3 +120,36 @@
         ├── models -> Created models.py declaring SQLAlchemy structures for FSL matching aggregates
         ├── queries -> Created queries.py containing SQL query builder for candidate allocation solver
         └── requirements -> Created requirements.txt containing all dependencies (including psycopg2-binary, SQLAlchemy, and dotenv)
+
+[2026-07-10 16:31:00] Fixed frontend Dispatch Notification forms to use valid backend event code
+└── File: packages/node/procureiq-nextjs/src/app/notifications/
+    ├── Choice: Replaced PO_CREATED and other unseeded event codes in all dispatch forms with the seeded "system_alert" code to resolve HTTP 400 validation errors
+    └── Changes:
+        ├── page.tsx -> Set default state to "system_alert" and updated Event Code select options in the inline modal form
+        └── dispatch/page.tsx -> Set default state to "system_alert" and updated Event Code select options in the full page dispatch console form
+[2026-07-10 16:35:00] Fixed frontend Work Order creation payload logic to omit null optional IDs
+└── File: packages/node/procureiq-nextjs/src/app/work-orders/
+    ├── Choice: Omit null values for optional ID properties to prevent Hibernate parameter binding exceptions, and make workTypeId strictly required
+    └── Changes:
+        ├── create/page.tsx -> Conditionally assign optional properties; made workTypeId input field strictly required
+        └── page.tsx -> Conditionally assign optional properties in inline modal; made workTypeId input field strictly required
+
+[2026-07-10 16:44:00] Audited and refactored Field Service frontend for styling bugs and SRP/coupling compliance
+└── File: packages/node/procureiq-nextjs/src/app/field-service/
+    ├── Choice: Separate type definitions from client calls and correct broken Tailwind CSS color utilities to match cohesive dark zinc themes
+    └── Changes:
+        ├── types.ts -> Extracted OperatingHours, ServiceTerritory, ServiceResource, ServiceAppointment interfaces to satisfy SRP/Type coupling separation
+        ├── api-client.ts -> Imported types from `./types` instead of declaring inline interfaces
+        ├── page.tsx -> Standardized invalid custom Tailwind classes (zinc-850 -> zinc-800, zinc-555 -> zinc-500, etc.)
+        ├── appointments/page.tsx -> Corrected imports and resolved invalid custom Tailwind color utilities
+        ├── operating-hours/page.tsx -> Corrected imports and resolved invalid custom Tailwind color utilities
+        ├── resources/page.tsx -> Corrected imports and resolved invalid custom Tailwind color utilities
+        └── territories/page.tsx -> Corrected imports and resolved invalid custom Tailwind color utilities
+
+[2026-07-10 16:59:00] Implemented GET list mappings for all Field Service entities
+└── File: multiple-locations
+    ├── Choice: Implement GET listing endpoints on the backend Spring Boot app and hook up Next.js client lists to retrieve synced records
+    └── Changes:
+        ├── packages/java/procureiq-springboot/contracts/openapi/v1.yaml -> Added GET list operation paths to operating-hours, territories, resources, and appointments
+        ├── packages/java/procureiq-springboot/src/main/java/com/procureiq/springboot_app/ -> Implemented list method in OperatingHoursService, ServiceTerritoryService, ServiceResourceService, and ServiceAppointmentService; exposed GetMapping paths in respective Controllers
+        └── packages/node/procureiq-nextjs/src/app/field-service/api-client.ts -> Refactored list methods to execute GET requests with local cache synchronization fallbacks
