@@ -100,3 +100,23 @@
         ├── repositories -> Added countUnreadTargetedActive JPQL query to filter unread count totals by release dates
         ├── documentation -> Updated flow/notification-flow.yml with user and system lifecycles detailing scheduling
         └── tests -> Coded testSendScheduledNotification verifying that future-scheduled items remain invisible (20/20 tests passing)
+
+[2026-07-10 09:59:00] Created complete Field Service Core Data Model DDL, candidate matching and CRUD APIs, services, and tests
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Comprehensive FSL 6-cluster schema (Work Orders, Polymorphic Appointments, Territories, Skills, Capacities, Absences), JpaRepositories with FSL constraints native query matcher, and REST controller CRUD APIs following Single Responsibility Principle
+    └── Changes:
+        ├── contracts -> Added OperatingHours, ServiceTerritory, ServiceResource, WorkType, WorkOrder, ServiceAppointment, AssignedResource, and all 15 auxiliary FSL entity CRUD and matching API specs to v1.yaml
+        ├── migrations -> Created 0002_create_field_service_system.sql matching FSL specifications with triggers and lock updates
+        ├── entities -> Coded JPA mappings for all FSL core tables
+        ├── repositories -> Coded Spring Data JPA repository interfaces and FSL candidate matching query in ServiceResourceRepository
+        ├── service -> Programmed separate Service classes (OperatingHoursService, ServiceTerritoryService, ServiceResourceService, WorkTypeService, WorkOrderService, ServiceAppointmentService, and all 15 auxiliary FSL services) following SRP
+        ├── handlers -> Created separate Controller classes (OperatingHoursController, ServiceTerritoryController, ServiceResourceController, WorkTypeController, WorkOrderController, ServiceAppointmentController, and all 15 auxiliary FSL controllers) exposing JSON endpoints using ApiResponse
+        └── tests -> Coded integration suite in FieldServiceControllerTest verifying correct API functionality, matching, and auto-creation side effects
+[2026-07-10 11:12:00] Configured Python Supabase connection and added FSL models/queries
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/python/procureiq-python/
+    ├── Choice: SQLAlchemy models mapping FSL database tables and candidate matching logic
+    └── Changes:
+        ├── config -> Created .env file and modified database.py to automatically load Supabase connection URL
+        ├── models -> Created models.py declaring SQLAlchemy structures for FSL matching aggregates
+        ├── queries -> Created queries.py containing SQL query builder for candidate allocation solver
+        └── requirements -> Created requirements.txt containing all dependencies (including psycopg2-binary, SQLAlchemy, and dotenv)
