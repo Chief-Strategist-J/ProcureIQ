@@ -203,6 +203,7 @@
         ├── adapters -> Created GitHubApiService under infra.adapters supporting repository dispatch events, repository details fetching, and workflow run checks with mock fallback behavior
         ├── controller -> Created GitHubApiController under api.rest.v1.handlers exposing /api/v1/github/dispatch, /api/v1/github/repo-info, and /api/v1/github/workflow-runs endpoints with OpenTelemetry tracing spans
         └── tests -> Coded GitHubApiControllerTest integration suite under src/test/java/com/procureiq/springboot_app/ verifying mock and validation scenarios
+
 [2026-07-11 17:18:00] Integrated Gmail API dispatcher into Reminders scheduler worker
 └── File: packages/java/procureiq-springboot/
     ├── Choice: Schedule background daemon query for due pending reminders and dispatch notifications via Gmail API
@@ -210,3 +211,90 @@
         ├── repository -> Added findByStatusAndDueAtBefore query method to ReminderRepository
         ├── worker -> Created ReminderBackgroundWorker executing periodically to process due items and send emails using GmailApiService
         └── tests -> Programmed ReminderBackgroundWorkerTest verifying status changes from PENDING to SENT upon successful Gmail dispatch
+
+[2026-07-11 17:37:00] Implemented provider-agnostic scheduled voice call feature (Adapter Pattern)
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Adapter Pattern with VoiceCallPort interface, three provider adapters, and VOICE_PROVIDER env-var selection; Twilio/Vapi via RestTemplate, default mock; background worker polls every 5s
+    └── Changes:
+        ├── migrations -> Created 0005_create_voice_call_scheduler.sql defining scheduled_calls table (id, phone_number, instructions, scheduled_at, status, provider, created_at) and composite index; created rollback script
+        ├── port -> Created VoiceCallPort interface in shared/ports/ with single method call(phoneNumber, instructions)
+        ├── adapters -> Created MockVoiceAdapter (logs and returns), TwilioVoiceAdapter (RestTemplate POST to Twilio REST API with Basic auth and inline TwiML), VapiVoiceAdapter (RestTemplate POST to Vapi.ai with Bearer auth and assistant overrides) under infra/adapters/voice/
+        ├── config -> Created VoiceCallProviderConfig @Configuration bean reading VOICE_PROVIDER env var (twilio|vapi|mock) and selecting the @Primary VoiceCallPort implementation at startup
+        ├── entity -> Created ScheduledCall JPA entity mapping scheduled_calls under features/voice/entity/
+        ├── repository -> Created ScheduledCallRepository with findByStatusAndScheduledAtBefore under features/voice/repository/
+        ├── worker -> Created VoiceCallBackgroundWorker with @Scheduled(fixedDelay=5000) polling due PENDING calls and routing via VoiceCallPort; sets status CALLED or FAILED
+        ├── handler -> Created VoiceCallController exposing POST /api/v1/voice/schedule, GET /api/v1/voice/scheduled, DELETE /api/v1/voice/{id} with OTel tracing and ApiResponse wrapping
+        ├── contracts -> Added ScheduleVoiceCallRequest, ScheduledCall, ApiResponseScheduledCall, ApiResponseScheduledCallList schemas and voice paths to v1.yaml; bumped version to 1.5.0
+        └── tests -> Coded VoiceCallControllerTest with 10 integration tests covering schedule/list/delete endpoints, validation, background worker due/future/already-called behaviour
+
+[2026-07-11 17:20:00] Built Campaigns frontend UI (hub, list, recipients, schedules) for existing Spring Boot campaigns API
+└── File: packages/node/procureiq-nextjs/src/app/campaigns/
+    ├── Choice: Hub + sub-route pattern mirroring field-service/, colocated api-client.ts + types.ts with localStorage offline fallback matching existing convention
+    └── Changes:
+        ├── types.ts -> Added Campaign, Recipient, CampaignSchedule interfaces
+        ├── api-client.ts -> Created CampaignsApi static class with seeded localStorage fallback for Campaign/Recipient/CampaignSchedule CRUD
+        ├── page.tsx -> Hub dashboard linking to list/recipients/schedules sub-routes
+        ├── list/page.tsx, recipients/page.tsx, schedules/page.tsx -> List + create/edit modal pages per entity
+        └── tests -> Added campaigns.test.tsx, campaigns-list.test.tsx, campaigns-recipients.test.tsx, campaigns-schedules.test.tsx (9 tests, all passing)
+
+[2026-07-11 17:35:00] Built Jobs frontend UI for existing Spring Boot job scheduler API
+└── File: packages/node/procureiq-nextjs/src/app/jobs/
+    ├── Choice: Single list page with create/edit modal plus a second modal for run history and trigger-run action; free-form config field uses a plain JSON textarea (no existing structured-editor precedent)
+    └── Changes:
+        ├── types.ts -> Added Job, JobRun interfaces
+        ├── api-client.ts -> Created JobsApi static class (CRUD + listRuns/triggerRun) with localStorage fallback; listRuns guards on Array.isArray(body.data) to avoid crashing on a malformed/non-array response
+        ├── page.tsx -> List + create/edit modal, per-row Trigger Run button, View Runs modal
+        └── tests -> Added jobs.test.tsx (4 tests, all passing)
+
+[2026-07-11 17:50:00] Built Workflows frontend UI mirroring Jobs, for existing Spring Boot workflow automation API
+└── File: packages/node/procureiq-nextjs/src/app/workflows/
+    ├── Choice: Identical structure to Jobs (list + modal + runs modal) since Workflow/WorkflowRun shape matches Job/JobRun minus categoryId/config
+    └── Changes:
+        ├── types.ts -> Added Workflow, WorkflowRun interfaces
+        ├── api-client.ts -> Created WorkflowsApi static class (CRUD + listRuns/triggerRun) with localStorage fallback and the same Array.isArray(body.data) guard
+        ├── page.tsx -> List + create/edit modal, per-row Trigger Run button, View Runs modal
+        └── tests -> Added workflows.test.tsx (4 tests, all passing)
+
+[2026-07-11 18:05:00] Built Email frontend UI for the Python/FastAPI email service, plus nav/env wiring for all four new features
+└── File: packages/node/procureiq-nextjs/src/app/email/, src/components/layout/sidebar.tsx, .env, .env.local
+    ├── Choice: Python service returns unwrapped JSON (no ApiResponse envelope) — api-client reads the body directly and uses res.ok as the success signal instead of copying the .data-unwrap pattern used by the Java-backed features
+    └── Changes:
+        ├── types.ts -> Added EmailSendRequest, EmailScheduleRequest, EmailResponse, EmailScheduleResponse interfaces
+        ├── api-client.ts -> Created EmailApi static class (sendNow, scheduleEmail, listScheduled) targeting NEXT_PUBLIC_PYTHON_API_URL
+        ├── page.tsx -> Scheduled Queue list with Send Now / Schedule Email header actions
+        ├── send/page.tsx, schedule/page.tsx -> Create-form pages mirroring work-orders/create/page.tsx
+        ├── tests -> Added email.test.tsx, email-send.test.tsx, email-schedule.test.tsx (6 tests, all passing)
+        ├── sidebar.tsx -> Added Campaigns, Jobs, Workflows, Email nav items (Megaphone, ListChecks, Workflow, Mail icons)
+        └── .env / .env.local -> Added NEXT_PUBLIC_PYTHON_API_URL=http://localhost:8000 (Python service not yet deployed; one-line swap when it is)
+
+[2026-07-11 18:30:00] Seeded a GitHub Action template catalog and built a dashboard to deploy/trigger them via the existing GitHubApiService
+└── File: packages/java/procureiq-springboot/{database,contracts,src}/, packages/node/procureiq-nextjs/src/app/github/
+    ├── Choice: New github_action_templates table (not raw .yml files in this repo, not ad hoc jobs.config) holding 50 ready-to-deploy workflow YAML templates (reusing names/categories/crons from 0001_daily_job_templates.sql); dashboard uses the pre-existing create-workflow/dispatch endpoints on GitHubApiController rather than adding new write logic
+    └── Changes:
+        ├── database/migrations/0006_create_github_action_templates.sql (+.rollback.sql) -> New table: id, name, category, description, cron_expression, event_type (unique), yaml_content
+        ├── database/schema.lock -> Bumped to 0006
+        ├── database/seeds/0003_github_action_templates.sql -> Seeded 50 templates; verified against a disposable scratch Postgres database (idempotent re-run confirmed, YAML round-tripped and re-parsed correctly), then applied to the local dev DB
+        ├── contracts/openapi/v1.yaml (v1.6.0) + contracts/changelog.md -> Added GET /api/v1/github/templates and GET /api/v1/github/templates/{id}
+        ├── features/githubactions/{entity,repository,dto,service}/ + api/rest/v1/handlers/GithubActionTemplateController.java -> Read-only list/get-by-id endpoints, mirroring the Campaigns feature's entity/tracer/span/ApiResponse conventions exactly
+        ├── src/test/.../GithubActionTemplateControllerTest.java -> 3 tests; full backend suite re-verified at 50/50 passing after fixing a test-data event_type collision with the real seed
+        ├── src/app/github/{types.ts,api-client.ts,page.tsx} -> Template catalog (search/filter), per-row Deploy (create-workflow) and Trigger (dispatch) actions, View YAML modal, Repo Info + Recent Workflow Runs panels, and a mock-mode banner surfaced whenever a response reports mock:true (no GITHUB_TOKEN configured yet)
+        ├── tests/unit/github.test.tsx -> 3 tests covering template render, deploy payload, dispatch payload
+        └── sidebar.tsx -> Added GitHub nav item (GitBranch icon — lucide-react has no brand "Github" icon in this version)
+
+[2026-07-11 18:20:00] Seeded 50 reusable daily job templates (comms, code review, CI/CD, security, infra, data, vendor, customer success)
+└── File: packages/java/procureiq-springboot/database/seeds/0001_daily_job_templates.sql
+    ├── Choice: Idempotent SQL seed (ON CONFLICT DO NOTHING) targeting the existing jobs/job_categories/schedules tables from migration 0004; verified end-to-end against a throwaway scratch Postgres database before committing, then dropped
+    └── Changes:
+        ├── organizations -> Seeded default org (id=1) as FK target for jobs.org_id
+        ├── job_categories -> Seeded 8 categories (Communication & Support, Code Quality & Review, CI/CD & Build, Security & Compliance, Infrastructure & Ops, Data & Reporting, Vendor & Contract Management, Customer Success)
+        ├── jobs -> Seeded 50 job templates (ids 90001-90050) with descriptive config JSON, status=active
+        └── schedules -> Seeded 50 matching daily cron schedules (ids 90001-90050), staggered across the day to avoid a thundering herd
+
+[2026-07-11 18:35:00] Seeded 50 complex multi-step workflow templates (4-stage approval/automation chains)
+└── File: packages/java/procureiq-springboot/database/seeds/0002_complex_workflow_templates.sql
+    ├── Choice: Generated via a one-off Python script (deterministic ID bookkeeping across 450+ rows) rather than hand-typed, then verified end-to-end against a throwaway scratch Postgres database (including idempotency re-run) before committing
+    └── Changes:
+        ├── workflows -> Seeded 50 workflow templates (ids 91001-91050) across procurement, field service, IT/security, finance, and customer domains
+        ├── workflow_steps -> Seeded 200 steps (4 per workflow: start -> approval -> approval -> notification, domain-flavored stage names)
+        ├── workflow_edges -> Seeded 150 edges forming a linear DAG chain per workflow (step1->step2->step3->step4)
+        └── triggers -> Seeded 50 event-driven triggers (one per workflow, config carries a slugified "<workflow>.requested" event name)
