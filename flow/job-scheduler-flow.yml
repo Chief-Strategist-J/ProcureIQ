@@ -1,0 +1,66 @@
+# JOB SCHEDULER & WORKFLOW ENGINE — complete execution lifecycle
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- workflow transitions and job lifecycle
+# ============================================================================
+graph:
+  order: >
+    Trigger Activation (cron/webhook/Git event)
+      --> Workflow run instantiation (workflow_runs)
+      --> Step progression & Parallel gate resolution (workflow_step_runs)
+      --> Job Run execution (job_runs, mapping variables and scopes)
+      --> Runner Action (HTTP request / GitHub dispatch trigger / script execution)
+      --> Outcome handling (success/failure/Saga compensation rollback)
+  core_principles:
+    life_of_a_run: >
+      1. triggers / trigger_events: Listeners that capture external hooks, file modifications, or timers.
+      2. workflows / workflow_steps: The design parameters of the execution graph.
+      3. workflow_runs / job_runs: The active runtime state and variable resolution workspace.
+
+# ============================================================================
+# STEPS -- workflow execution steps
+# ============================================================================
+steps:
+  - step: 1
+    who: "External Webhook / Git Event / Cron Expression"
+    does: "Fires trigger parameters into ProcureIQ"
+    endpoint: "POST /api/v1/github/dispatch"
+    entity: "TriggerEvent"
+  - step: 2
+    who: "Trigger Dispatcher"
+    does: "Validates request payload and instantiates a workflow run or job run"
+    result: "Saves entry to workflow_runs in status='running'"
+  - step: 3
+    who: "Workflow Execution Engine"
+    does: "Evaluates step types. Resolves outputs, delay timers, and parallel gate branches"
+  - step: 4
+    who: "Manual Approval Gate"
+    does: "Pauses steps requiring approval, writes to workflow_approvals, and waits for REST decision"
+    endpoint: "POST /api/v1/workflows/runs/{runId}/approve"
+  - step: 5
+    who: "Task Executor"
+    does: "Enqueues execution task as job_runs, claiming batches via FOR UPDATE SKIP LOCKED"
+  - step: 6
+    who: "Job Runner / GitHub API Adapter"
+    does: "Triggers GitHub actions (via GitHubApiService) or local processes and writes run logs to job_run_logs"
+  - step: 7
+    who: "Rollback (Saga) Processor"
+    does: "On task failure, evaluates compensation_step_id for prior completed steps to rollback system state"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  Trigger Event (Timer / Webhook Hook / Git repository dispatch)
+  └── Trigger Match Ingest (triggers -> trigger_events)
+      └── Create Run -> Insert into `workflow_runs` (status="running")
+          └── Evaluate Workflow step (workflow_steps)
+              ├── TASK STEP          -> Queue job -> Insert into `job_runs`
+              │   └── Job Worker (FOR UPDATE SKIP LOCKED)
+              │       └── Exec (e.g. GitHubApiService dispatch action)
+              │           ├── SUCCESS -> Capture Output -> Map to Workflow Variables -> Advance step
+              │           └── FAILURE -> Retry count check -> Saga rollback compensation (reverse steps)
+              ├── PARALLEL GATE      -> Fan-out executions -> Downstream Fan-in/Join barrier
+              ├── WAIT EVENT / DELAY -> Set status="waiting", resume_at = delay_time -> Engine poller
+              └── MANUAL APPROVAL    -> Write `workflow_approvals` (status="pending") -> Wait for decision

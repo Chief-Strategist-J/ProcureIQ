@@ -1,0 +1,78 @@
+# GMAIL API INTEGRATION — all operations, auth modes, and dispatch flows
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- Gmail API integration paths
+# ============================================================================
+graph:
+  order: >
+    Client Request (REST call)
+      --> GmailApiController (input validation, OpenTelemetry span)
+      --> GmailApiService (authentication resolution)
+      --> [PROD] Google Gmail API client (OAuth2 / Service Account)
+      --> [MOCK] Simulated Response (no credentials needed)
+      --> Response Mapping -> REST Response
+
+  auth_modes:
+    production:
+      trigger: "GMAIL_CREDENTIALS_JSON environment variable set"
+      method: "GoogleCredentials.fromStream() -> Gmail API OAuth2 client"
+      result: "Real email sent via Google API client"
+    mock:
+      trigger: "GMAIL_CREDENTIALS_JSON not set"
+      method: "Returns a synthetic Message object with mocked id/threadId"
+      result: "No real email sent. Safe for local dev and CI pipelines"
+
+# ============================================================================
+# OPERATIONS CATALOG
+# ============================================================================
+operations:
+  - name: "Send Email"
+    endpoint: "POST /api/v1/gmail/send"
+    input: "{ to, subject, body }"
+    service: "GmailApiService.sendEmail(to, subject, body)"
+    result: "Dispatches a full MIME message. Returns Message object with ID and thread ID."
+
+  - name: "List Messages"
+    endpoint: "GET /api/v1/gmail/list"
+    input: "None (reads authenticated user's mailbox)"
+    service: "GmailApiService.listMessages()"
+    result: "Returns list of Gmail Message metadata objects (id, threadId)."
+
+  - name: "Create Draft"
+    endpoint: "N/A (service-level only)"
+    input: "to, subject, body"
+    service: "GmailApiService.createDraft(to, subject, body)"
+    result: "Saves a draft message in the authenticated user's Gmail drafts folder."
+
+  - name: "Get Label Stats"
+    endpoint: "N/A (service-level only)"
+    input: "None"
+    service: "GmailApiService.getLabelStats()"
+    result: "Returns message count and size statistics per Gmail label (INBOX, SENT, SPAM etc)."
+
+  - name: "Reminder Email Dispatch (internal)"
+    endpoint: "Triggered by ReminderBackgroundWorker (no public REST path)"
+    input: "assigneeContact, title, description"
+    service: "GmailApiService.sendEmail()"
+    result: "Delivers reminder notification email to target address."
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  Client Request
+  └── GmailApiController (input validation, OTEL span)
+      └── GmailApiService (credential resolution)
+          ├── [PROD] GMAIL_CREDENTIALS_JSON set
+          │   └── GoogleCredentials.fromStream() -> Gmail Service Client
+          │       ├── sendEmail() -> MimeMessage build -> users.messages.send()
+          │       │   ├── SUCCESS -> return Message (id, threadId)
+          │       │   └── FAILURE -> throw IOException -> 400 error response
+          │       ├── listMessages() -> users.messages.list() -> return []Message
+          │       ├── createDraft() -> Draft.build() -> users.drafts.create()
+          │       └── getLabelStats() -> users.labels.list() -> []Label counts
+          └── [MOCK] GMAIL_CREDENTIALS_JSON not set
+              └── Synthetic response object returned
+                  ├── sendEmail() -> Message{id="mock-id", threadId="mock-thread"}
+                  └── listMessages() -> []Message (empty or seeded mock list)

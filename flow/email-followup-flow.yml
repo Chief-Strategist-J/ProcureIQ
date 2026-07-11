@@ -1,0 +1,108 @@
+# EMAIL FOLLOW-UP SCHEDULING — all branch flows for automated follow-up emails
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- follow-up email branches and conditions
+# ============================================================================
+graph:
+  order: >
+    Initial Email Send
+      --> Track Engagement Event (open/click/reply via email_events)
+      --> Evaluate Follow-up Condition (opened? replied? clicked?)
+      --> Branch: Conditional Follow-up / Drip Step / Manual Re-engagement
+      --> Send Follow-up Email (in same Gmail threadId)
+  core_principles:
+    follow_up_intent: >
+      A follow-up is any email triggered in response to either the absence or presence
+      of engagement on a prior email. All branches ultimately reuse the same
+      GmailApiService.sendEmail() dispatch path.
+
+# ============================================================================
+# BRANCH FLOWS
+# ============================================================================
+branches:
+
+  # --- Branch A: Workflow-driven conditional follow-up ---
+  workflow_conditional_followup:
+    description: "Best for complex logic: wait N days, check open status, branch on result"
+    steps:
+      - step: 1
+        action: "POST /api/v1/workflows -> Create workflow with 3 steps"
+      - step: 2
+        action: "POST /api/v1/workflows/{id}/runs -> Trigger run"
+      - step: 3
+        action: "Workflow step 1: TASK -> Send initial email via GmailApiService"
+        result: "Logs threadId into workflow variables"
+      - step: 4
+        action: "Workflow step 2: WAIT -> sleep for N days (delay timer)"
+      - step: 5
+        action: "Workflow step 3: CONDITION -> Query email_events for opens in threadId"
+        branches:
+          not_opened: "Dispatch follow-up email in same threadId (GmailApiService)"
+          opened_clicked: "Mark workflow run complete, no follow-up needed"
+
+  # --- Branch B: Campaign drip sequence ---
+  campaign_drip_followup:
+    description: "Best for bulk campaigns: define multi-step drip with fixed delays"
+    steps:
+      - step: 1
+        action: "POST /api/v1/campaigns -> Create campaign"
+      - step: 2
+        action: "Add campaign_step: delay_from_prev = 'P3D' (3 days), template = follow_up_template_id"
+      - step: 3
+        action: "Campaign engine evaluates exit_condition JSONB e.g. {has_replied: true}"
+        branches:
+          has_replied_true:  "Skip remaining drip steps, exit campaign"
+          has_replied_false: "Send follow-up email at scheduled step time"
+
+  # --- Branch C: Reminder-based manual follow-up ---
+  reminder_followup:
+    description: "Best for personal 1-on-1 follow-ups: schedule directly with a due date"
+    steps:
+      - step: 1
+        action: "POST /api/v1/gmail/send -> Send initial email, capture returned threadId"
+      - step: 2
+        action: "POST /api/v1/reminders -> { title: 'Follow-up on Proposal', description: 'Thread ref: {threadId}', dueAt: +3days, contactPreference: 'EMAIL', assigneeContact: 'target@example.com' }"
+      - step: 3
+        action: "ReminderBackgroundWorker fires when dueAt elapsed, dispatches follow-up via GmailApiService"
+
+  # --- Branch D: GitHub Action-triggered follow-up ---
+  github_triggered_followup:
+    description: "CI/CD event (e.g. build failed) triggers follow-up email notification"
+    steps:
+      - step: 1
+        action: "GET /api/v1/github/workflow-runs -> detect conclusion='failure'"
+      - step: 2
+        action: "Job Scheduler step: call GmailApiService.sendEmail() with failure summary"
+      - step: 3
+        action: "Follow-up N hours later if no fix pushed: another GmailApiService.sendEmail()"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  Initial Email Sent (GmailApiService.sendEmail)
+  └── Capture threadId + messageId
+      │
+      ├── [Branch A] Workflow Conditional Follow-up
+      │   └── POST api/v1/workflows -> Trigger Run
+      │       ├── Step 1: Send Initial Email (TASK node)
+      │       ├── Step 2: Wait N days (WAIT/DELAY node)
+      │       └── Step 3: Check email_events (CONDITION node)
+      │           ├── NOT_OPENED -> GmailApiService.sendEmail(followup in threadId)
+      │           └── OPENED     -> Mark run complete (stop)
+      │
+      ├── [Branch B] Campaign Drip Sequence
+      │   └── POST api/v1/campaigns -> Add campaign_steps with delays
+      │       ├── Step 1: Send initial template
+      │       ├── Step 2: delay_from_prev 3 days -> Send follow-up template
+      │       └── exit_condition {has_replied:true} -> Abort drip
+      │
+      ├── [Branch C] Manual Reminder Follow-up
+      │   └── POST api/v1/reminders { dueAt: +3days, contactPreference: EMAIL }
+      │       └── ReminderBackgroundWorker fires -> GmailApiService.sendEmail()
+      │
+      └── [Branch D] GitHub CI/CD-triggered Follow-up
+          └── GET api/v1/github/workflow-runs -> conclusion="failure"
+              └── Job step: GmailApiService.sendEmail("Build Failed Alert")
+                  └── Wait N hours, resend if still failing

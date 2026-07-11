@@ -112,8 +112,9 @@
         ├── service -> Programmed separate Service classes (OperatingHoursService, ServiceTerritoryService, ServiceResourceService, WorkTypeService, WorkOrderService, ServiceAppointmentService, and all 15 auxiliary FSL services) following SRP
         ├── handlers -> Created separate Controller classes (OperatingHoursController, ServiceTerritoryController, ServiceResourceController, WorkTypeController, WorkOrderController, ServiceAppointmentController, and all 15 auxiliary FSL controllers) exposing JSON endpoints using ApiResponse
         └── tests -> Coded integration suite in FieldServiceControllerTest verifying correct API functionality, matching, and auto-creation side effects
+
 [2026-07-10 11:12:00] Configured Python Supabase connection and added FSL models/queries
-└── File: /home/btpl-lap-22/live/ProcureIQ/packages/python/procureiq-python/
+└── File: packages/python/procureiq-python/
     ├── Choice: SQLAlchemy models mapping FSL database tables and candidate matching logic
     └── Changes:
         ├── config -> Created .env file and modified database.py to automatically load Supabase connection URL
@@ -127,6 +128,7 @@
     └── Changes:
         ├── page.tsx -> Set default state to "system_alert" and updated Event Code select options in the inline modal form
         └── dispatch/page.tsx -> Set default state to "system_alert" and updated Event Code select options in the full page dispatch console form
+
 [2026-07-10 16:35:00] Fixed frontend Work Order creation payload logic to omit null optional IDs
 └── File: packages/node/procureiq-nextjs/src/app/work-orders/
     ├── Choice: Omit null values for optional ID properties to prevent Hibernate parameter binding exceptions, and make workTypeId strictly required
@@ -153,3 +155,58 @@
         ├── packages/java/procureiq-springboot/contracts/openapi/v1.yaml -> Added GET list operation paths to operating-hours, territories, resources, and appointments
         ├── packages/java/procureiq-springboot/src/main/java/com/procureiq/springboot_app/ -> Implemented list method in OperatingHoursService, ServiceTerritoryService, ServiceResourceService, and ServiceAppointmentService; exposed GetMapping paths in respective Controllers
         └── packages/node/procureiq-nextjs/src/app/field-service/api-client.ts -> Refactored list methods to execute GET requests with local cache synchronization fallbacks
+
+[2026-07-11 16:15:00] Implemented Gmail SMTP sending and scheduling APIs in Python service
+└── File: packages/python/procureiq-python/
+    ├── Choice: REST OpenAPI contract first, SQLite/PostgreSQL metadata registration via SQLAlchemy, built-in smtplib/email message structures, and threading background worker daemon
+    └── Changes:
+        ├── contracts/openapi/v1.yaml -> Created email OpenAPI endpoints schema for send, schedule, and listed items
+        ├── src/features/email/models.py -> Added ScheduledEmail DB schema mapping
+        ├── src/features/email/service.py -> Programmed send_gmail_email SMTP actions and process_scheduled_emails DB check loop
+        ├── src/api/rest/v1/handlers/email.py -> Created FastAPI routers mapping POST/GET endpoints using Pydantic validation
+        └── src/api/main.py -> Registered email router, forced schema table creation on boot, and initialized background daemon thread
+
+[2026-07-11 16:50:00] Implemented Java backend email campaign and scheduling platform APIs
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Vertical architecture aligned with api-structure.md guidelines, OpenAPI contract first approach, PostgreSQL migrations, and OpenTelemetry instrumentation
+    └── Changes:
+        ├── database/migrations -> Created 0003_create_email_campaign_system.sql and its rollback script defining schemas for multi-tenancy, campaigns, scheduled emails, and views
+        ├── contracts/openapi/v1.yaml -> Added REST paths and schema definitions for campaigns, schedules, and recipients; updated changelog.md
+        ├── src/main/java/com/procureiq/springboot_app/features/campaigns/ -> Coded Organization, Campaign, ScheduledEmail JPA entities, JpaRepositories, DTO record representations, and CampaignService
+        ├── src/main/java/com/procureiq/springboot_app/api/rest/v1/handlers/ -> Coded CampaignController exposing REST actions decorated with OpenTelemetry tracing spans
+        └── src/test/java/com/procureiq/springboot_app/ -> Created CampaignControllerTest verifying campaigns, scheduled emails, and recipients CRUD workflows
+
+[2026-07-11 17:00:00] Implemented Job Scheduler and Workflow Automation Platform in Java
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Vertical architecture aligned with api-structure.md guidelines, OpenAPI contract first approach, PostgreSQL migrations, and OpenTelemetry instrumentation
+    └── Changes:
+        ├── database/migrations -> Created 0004_create_job_scheduler_system.sql and its rollback script defining schemas for job scheduler and workflow automation, updated schema.lock
+        ├── contracts/openapi/v1.yaml -> Added REST paths and schema definitions for jobs, job runs, workflows, and workflow runs; updated changelog.md to version 1.4.0
+        ├── src/main/java/com/procureiq/springboot_app/features/jobs/ -> Created Job, JobRun, JobRunId, Workflow, WorkflowRun, WorkflowRunId JPA entities, JpaRepositories, DTO record representations, and JobService
+        ├── src/main/java/com/procureiq/springboot_app/api/rest/v1/handlers/ -> Created JobController exposing REST actions decorated with OpenTelemetry tracing spans
+        └── src/test/java/com/procureiq/springboot_app/ -> Created JobControllerTest verifying jobs, job runs, workflows, and workflow runs CRUD and trigger workflows
+
+[2026-07-11 17:05:00] Integrated official Google Gmail API in Spring Boot project
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Added com.google dependencies to pom.xml, created GmailApiService with mock fallback, and exposed GmailApiController REST endpoints
+    └── Changes:
+        ├── dependencies -> Added google-api-client (2.2.0), google-api-services-gmail (v1-rev20220404-2.0.0), google-auth-library-oauth2-http (1.16.0), and spring-boot-starter-mail to pom.xml
+        ├── adapters -> Created GmailApiService under infra.adapters supporting send, draft, list and label stats with environment/file credential parsing and mock fallback
+        ├── controller -> Created GmailApiController under api.rest.v1.handlers exposing /api/v1/gmail/send and /api/v1/gmail/list REST endpoints with OpenTelemetry spans
+        └── tests -> Added integration tests under src/test/java/com/procureiq/springboot_app/GmailApiControllerTest.java passing `./mvnw test` cleanly
+
+[2026-07-11 17:10:00] Integrated official GitHub API in Spring Boot project
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Added org.kohsuke:github-api dependency, created GitHubApiService with mock fallback, and exposed GitHubApiController REST endpoints
+    └── Changes:
+        ├── dependencies -> Added org.kohsuke:github-api (1.318) to pom.xml
+        ├── adapters -> Created GitHubApiService under infra.adapters supporting repository dispatch events, repository details fetching, and workflow run checks with mock fallback behavior
+        ├── controller -> Created GitHubApiController under api.rest.v1.handlers exposing /api/v1/github/dispatch, /api/v1/github/repo-info, and /api/v1/github/workflow-runs endpoints with OpenTelemetry tracing spans
+        └── tests -> Coded GitHubApiControllerTest integration suite under src/test/java/com/procureiq/springboot_app/ verifying mock and validation scenarios
+[2026-07-11 17:18:00] Integrated Gmail API dispatcher into Reminders scheduler worker
+└── File: packages/java/procureiq-springboot/
+    ├── Choice: Schedule background daemon query for due pending reminders and dispatch notifications via Gmail API
+    └── Changes:
+        ├── repository -> Added findByStatusAndDueAtBefore query method to ReminderRepository
+        ├── worker -> Created ReminderBackgroundWorker executing periodically to process due items and send emails using GmailApiService
+        └── tests -> Programmed ReminderBackgroundWorkerTest verifying status changes from PENDING to SENT upon successful Gmail dispatch

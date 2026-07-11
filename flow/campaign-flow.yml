@@ -1,0 +1,70 @@
+# EMAIL CAMPAIGN & SCHEDULING LIFECYCLE — complete end-to-end flow
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- stages of the campaign & scheduling lifecycle
+# ============================================================================
+graph:
+  order: >
+    Campaign Definition --(Steps/Workflows)--> Target Definition (static/dynamic segments)
+      --> Scheduled Emails Queue (scheduled_emails)
+      --> Suppression & Exclusion Filters (compliance check at enqueue)
+      --> Send Queue Enqueue (send_queue, templates rendered, merge fields mapped)
+      --> Delivery Engine & Provider Routing (email_deliveries via Gmail API)
+      --> Engagement tracking (email_events: open/click/reply)
+  core_principles:
+    intent_vs_execution: >
+      1. campaigns / campaign_steps / scheduled_emails: The intent (what to send, who targets, and when).
+      2. send_queue / rate_limit_buckets: The throttling and delivery pipeline layer.
+      3. email_deliveries / email_events: The execution status and engagement metrics.
+
+# ============================================================================
+# STEPS -- numbered end-to-end walkthrough
+# ============================================================================
+steps:
+  - step: 1
+    who: "Marketing/Ops User"
+    does: "Defines campaign details, steps, and scheduled release date"
+    endpoint: "POST /api/v1/campaigns"
+    entity: "CampaignRequest"
+  - step: 2
+    who: "Scheduler Service"
+    does: "Schedules delivery target references for a future date/time"
+    endpoint: "POST /api/v1/campaigns/schedules"
+    entity: "ScheduledEmailRequest"
+  - step: 3
+    who: "Campaign Engine Worker"
+    does: "Fetches scheduled emails ready for dispatch, evaluates dynamic segments, and filters contacts against global suppressions and campaign exclusions"
+    result: "Enqueues valid contacts to send_queue; logs exclusions in audit logs"
+  - step: 4
+    who: "Template Resolver"
+    does: "Fetches designated template and merges target custom fields (personalization) to render final HTML/subject lines"
+  - step: 5
+    who: "Send Queue Worker"
+    does: "Claims batches using FOR UPDATE SKIP LOCKED, updates attempt counts, and routes requests via GmailApiService"
+  - step: 6
+    who: "GmailApiService / Adapter"
+    does: "Authenticates via OAuth (GMAIL_CREDENTIALS_JSON) and delivers the mail, falling back to mock mode if credentials are unconfigured"
+  - step: 7
+    who: "Webhook / Redirect Handler"
+    does: "Tracks opens (via tracking pixel) or link redirects, saving events to email_events and automatically writing opt-outs to suppressions"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  POST api/v1/campaigns (Create Campaign Draft)
+  └── POST api/v1/campaigns/schedules (Set Send Intent)
+      └── Scheduler Daemon Run (polls scheduled_for <= now)
+          ├── Resolve Target Segment (Static List vs Dynamic JSONB Query)
+          ├── Compliance Filter Check
+          │   ├── MATCHED Suppressions/Exclusion -> Suppress/Discard Run
+          │   └── PASSED Compliance Filters      -> Render Merge Fields
+          └── Enqueue Dispatch -> Insert into `send_queue` (status="queued")
+              └── Send Queue Worker (claims batch via SKIP LOCKED)
+                  └── GmailApiService.sendEmail() (Official Google API Client)
+                      ├── SUCCESS -> status="sent", write into `email_deliveries`
+                      │   └── Recipient Engagement Action
+                      │       ├── OPEN/CLICK  -> Insert into `email_events`
+                      │       └── UNSUBSCRIBE -> Insert into `email_events` + Upsert into `suppressions`
+                      └── FAILURE -> Increment attempt_count -> Exponential Backoff -> max attempts -> status="dead_letter"

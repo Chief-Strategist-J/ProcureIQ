@@ -1,0 +1,88 @@
+# GITHUB API INTEGRATION — automation jobs, dispatch triggers, and workflow monitoring
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- GitHub API integration paths
+# ============================================================================
+graph:
+  order: >
+    Client Request (REST call or Job Scheduler trigger)
+      --> GitHubApiController (input validation, OpenTelemetry span)
+      --> GitHubApiService (token resolution and GitHub client setup)
+      --> [PROD] GitHub API client (org.kohsuke:github-api, GITHUB_TOKEN auth)
+      --> [MOCK] Simulated Response (no token needed, safe for CI)
+      --> Response Mapping -> REST Response
+
+  auth_modes:
+    production:
+      trigger: "GITHUB_TOKEN environment variable set"
+      method: "GitHub.connectUsingOAuth(token) -> GHRepository client"
+      result: "Real repository actions executed on GitHub"
+    mock:
+      trigger: "GITHUB_TOKEN not set"
+      method: "Returns hardcoded synthetic response objects"
+      result: "No real GitHub calls made. Safe for local dev and CI pipelines"
+
+# ============================================================================
+# OPERATIONS CATALOG
+# ============================================================================
+operations:
+  - name: "Repository Dispatch (Trigger GitHub Action)"
+    endpoint: "POST /api/v1/github/dispatch"
+    input: "{ repoFullName, eventType, payload }"
+    service: "GitHubApiService.triggerRepositoryDispatch(repoFullName, eventType, payload)"
+    result: "Fires a repository_dispatch event to the specified repo, which triggers matching GitHub Action workflow runs."
+    usecase: "Kick off deploy pipelines, run test suites, or trigger custom automation from ProcureIQ backend events."
+
+  - name: "Repository Info"
+    endpoint: "GET /api/v1/github/repo-info?repo={owner/name}"
+    input: "repo query param (owner/name)"
+    service: "GitHubApiService.getRepositoryInfo(repoFullName)"
+    result: "Returns repository metadata: name, description, default branch, open issues count, language."
+
+  - name: "Workflow Runs"
+    endpoint: "GET /api/v1/github/workflow-runs?repo={owner/name}"
+    input: "repo query param (owner/name)"
+    service: "GitHubApiService.getWorkflowRuns(repoFullName)"
+    result: "Returns a list of recent GHWorkflowRun objects (status, conclusion, created_at, html_url)."
+    usecase: "Monitor live build pipelines or check if a triggered dispatch run has completed."
+
+# ============================================================================
+# BRANCH FLOWS
+# ============================================================================
+branches:
+  dispatch_to_deploy:
+    trigger: "Job scheduler workflow node completes successfully"
+    action:  "POST /api/v1/github/dispatch { eventType: 'deploy', payload: { env: 'prod' } }"
+    result:  "GitHub Action runs deployment workflow; ProcureIQ polls /workflow-runs to confirm status"
+
+  dispatch_on_reminder:
+    trigger: "ReminderBackgroundWorker fires a GITHUB preference reminder"
+    action:  "GitHubApiService.triggerRepositoryDispatch(repo, eventType, {reminderTitle})"
+    result:  "GitHub Action notified; developer receives notification via GitHub UI or email"
+
+  monitor_build_failure:
+    trigger: "Periodic job scheduler run (every 15 min)"
+    action:  "GET /api/v1/github/workflow-runs -> parse conclusion field"
+    result:  "On 'failure' conclusion, trigger Gmail email alert via GmailApiService"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  Client Request (REST | Job Scheduler step)
+  └── GitHubApiController (input validation, OTEL span)
+      └── GitHubApiService (token resolution)
+          ├── [PROD] GITHUB_TOKEN set
+          │   └── GitHub.connectUsingOAuth(token)
+          │       ├── triggerRepositoryDispatch(repo, eventType, payload)
+          │       │   ├── SUCCESS -> return Map{status: "dispatched", repo, eventType}
+          │       │   └── FAILURE -> throw IOException -> 400 error response
+          │       ├── getRepositoryInfo(repo)
+          │       │   └── return Map{name, description, defaultBranch, openIssuesCount, language}
+          │       └── getWorkflowRuns(repo)
+          │           └── return List<Map>{id, status, conclusion, createdAt, htmlUrl}
+          └── [MOCK] GITHUB_TOKEN not set
+              ├── triggerRepositoryDispatch() -> {status: "mock-dispatched"}
+              ├── getRepositoryInfo()         -> {name: "mock-repo", ...}
+              └── getWorkflowRuns()           -> [{status: "completed", conclusion: "success"}]

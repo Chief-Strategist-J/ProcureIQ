@@ -1,0 +1,76 @@
+# REMINDER LIFECYCLE — complete scheduling, dispatch, and status update flow
+# created: 2026-07-11
+
+# ============================================================================
+# GRAPH -- reminder lifecycle stages
+# ============================================================================
+graph:
+  order: >
+    Reminder Creation (API)
+      --> Persistence (reminders table, status="PENDING")
+      --> Background Daemon Poll (every 5s, checks dueAt <= now)
+      --> Contact Preference Routing (EMAIL / CALL / SMS / OTHER)
+      --> Gmail API Email Dispatch (GmailApiService for EMAIL preference)
+      --> Status Update (SENT / FAILED / COMPLETED)
+  core_principles:
+    preference_based_routing: >
+      1. reminders: Intent record with contactPreference, dueAt, assigneeContact.
+      2. ReminderBackgroundWorker: The Scheduler Daemon that picks up due rows.
+      3. GmailApiService: The Gmail adapter for EMAIL preference channel.
+    status_lifecycle:
+      - PENDING  : Created, waiting for dueAt to elapse.
+      - SENT     : Successfully dispatched via EMAIL channel.
+      - COMPLETED: Dispatched via a non-email channel (CALL/OTHER).
+      - FAILED   : Email dispatch threw an exception (credentials issue, network error).
+      - SNOOZED  : User explicitly postponed, incrementing snooze_count.
+
+# ============================================================================
+# STEPS
+# ============================================================================
+steps:
+  - step: 1
+    who: "Any Client / UI"
+    does: "Creates reminder with title, description, dueAt, contactPreference, and assigneeContact"
+    endpoint: "POST /api/v1/reminders"
+    entity: "Reminder"
+  - step: 2
+    who: "ReminderController"
+    does: "Sets defaults (status=PENDING, createdAt=now) and persists to reminders table"
+    entity: "Reminder (PostgreSQL)"
+  - step: 3
+    who: "ReminderBackgroundWorker"
+    does: "Every 5 seconds: SELECT * FROM reminders WHERE status='PENDING' AND due_at <= now()"
+    result: "Returns list of overdue pending reminders"
+  - step: 4
+    who: "ReminderBackgroundWorker: Routing"
+    does: "Evaluates contactPreference field"
+    branches:
+      EMAIL/GMAIL: "Calls GmailApiService.sendEmail(assigneeContact, title, description)"
+      OTHER:       "Marks COMPLETED without network dispatch"
+  - step: 5
+    who: "GmailApiService"
+    does: "Builds MIME message and dispatches via authenticated Gmail API client"
+    branches:
+      SUCCESS: "Sets status=SENT on the reminder row"
+      FAILURE: "Sets status=FAILED and logs exception detail"
+  - step: 6
+    who: "Client / UI"
+    does: "Optionally updates, snoozes, or deletes reminder using update/delete endpoints"
+    endpoint: "PUT /api/v1/reminders/{id} | DELETE /api/v1/reminders/{id}"
+
+# ============================================================================
+# ASCII VISUAL FLOW
+# ============================================================================
+ascii_tree: |
+  POST api/v1/reminders (Create Reminder)
+  └── ReminderController -> Save to `reminders` (status="PENDING")
+      └── ReminderBackgroundWorker (polls every 5s)
+          └── Finds rows WHERE status='PENDING' AND due_at <= now()
+              ├── contactPreference = "EMAIL" or "GMAIL"
+              │   └── GmailApiService.sendEmail()
+              │       ├── SUCCESS -> status = "SENT"
+              │       └── FAILURE -> status = "FAILED"
+              ├── contactPreference = "CALL" | "OTHER"
+              │   └── status = "COMPLETED"
+              └── contactPreference = "SNOOZED" (user PUT /reminders/{id})
+                  └── dueAt = new future time, snooze_count++, status = "PENDING" (back in queue)
