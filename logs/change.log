@@ -361,6 +361,16 @@
         ├── response-wrappers -> Replaced ApiResponse with ApiSingleResponse and ApiListResponse to separate single vs list payload structures
         └── imports -> Updated imports across 50+ classes to reference new DTO locations
 
+[2026-07-14 17:24:00] Reorganized Spring Boot shared response wrappers into separate package subfolders
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Reorganized ApiSingleResponse, ApiListResponse, and ApiError into single/, list/, and error/ subdirectories and corrected imports, with strictly no comments.
+    └── Changes:
+        ├── single -> Moved ApiSingleResponse.java under shared/types/single/
+        ├── list -> Moved ApiListResponse.java under shared/types/list/
+        ├── error -> Moved ApiError.java under shared/types/error/
+        └── imports -> Updated all handlers and tracing helper imports to use the structured sub-packages
+
+
 
 
 
