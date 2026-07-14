@@ -384,6 +384,14 @@
         ├── springboot-comments -> Stripped single-line and multi-line comments from all files under packages/java/procureiq-springboot/src/main/java/
         └── flutter-comments -> Stripped single-line and multi-line comments from all files under packages/flutter/procureiq_webrtc_app/lib/
 
+[2026-07-14 17:35:00] Eliminated repetitive tracing boilerplate across all service layers in Spring Boot
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Added generic service-level execution methods in TracingHelper and replaced manual span builder try-finally blocks across all services, with strictly no comments.
+    └── Changes:
+        ├── helper -> Added executeServiceWithTracing and executeServiceVoidWithTracing dynamic lambdas in TracingHelper.java
+        └── services-refactor -> Cleaned up manual tracer.spanBuilder usages and try-finally blocks in 30 service and adapter classes (yielding a net reduction of over 300 lines)
+
+
 
 
 
