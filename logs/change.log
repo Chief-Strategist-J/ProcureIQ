@@ -377,6 +377,14 @@
         ├── config -> Registered get_it inside pubspec.yaml and configured shared/injection.dart locator setup
         └── initialization -> Refactored main.dart to initialize the locator and retrieve VideoCallBloc via DI
 
+[2026-07-14 17:32:00] Stripped all code comments from the backend and client packages
+└── File: /home/btpl-lap-22/live/ProcureIQ/
+    ├── Choice: Removed all inline, block, and Javadoc comments from Java and Dart source files while preserving string literals, with strictly no comments.
+    └── Changes:
+        ├── springboot-comments -> Stripped single-line and multi-line comments from all files under packages/java/procureiq-springboot/src/main/java/
+        └── flutter-comments -> Stripped single-line and multi-line comments from all files under packages/flutter/procureiq_webrtc_app/lib/
+
+
 
 
 
