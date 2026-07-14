@@ -333,6 +333,14 @@
         ├── trace-translator -> Enhanced TracingHelper to map specific custom exceptions and general "not found" exceptions to their correct status code (e.g. 404, 401, 403)
         └── auth-service -> Refactored AuthService to throw UnauthorizedException instead of IllegalArgumentException on credential failures
 
+[2026-07-14 17:14:00] Introduced structured model serialization for WebRTC signaling in Flutter
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/flutter/procureiq_webrtc_app/
+    ├── Choice: Created SignalingMessage model class with toJson and fromJson serialization methods to eliminate loose Map socket payloads, with strictly no comments.
+    └── Changes:
+        ├── model -> Created SignalingMessage model class under lib/features/video_call/model/
+        └── service -> Refactored SignalingService to send and receive structured SignalingMessage objects
+
+
 
 
 
