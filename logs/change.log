@@ -323,8 +323,16 @@
 [2026-07-14 17:09:00] Centralized OpenTelemetry tracing boilerplate in Spring Boot controllers
 └── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
     ├── Choice: Created TracingHelper wrapper utility dynamically resolving span names from calling stack traces to DRY controllers and unify status mapping, with strictly no comments.
-    └── Changes:
         └── controllers -> Replaced duplicate try-catch-finally tracing boilerplate across 30 controller classes with unified TracingHelper.executeWithTracing lambda calls
+
+[2026-07-14 17:12:00] Centralized and modernized exception handling and dynamic status code translation
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Created custom exceptions (ResourceNotFoundException, UnauthorizedException, ForbiddenException) and updated TracingHelper to dynamically resolve status codes, with strictly no comments.
+    └── Changes:
+        ├── exceptions -> Added ForbiddenException, ResourceNotFoundException, and UnauthorizedException classes to shared/exceptions/
+        ├── trace-translator -> Enhanced TracingHelper to map specific custom exceptions and general "not found" exceptions to their correct status code (e.g. 404, 401, 403)
+        └── auth-service -> Refactored AuthService to throw UnauthorizedException instead of IllegalArgumentException on credential failures
+
 
 
 
