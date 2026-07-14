@@ -298,3 +298,12 @@
         ├── workflow_steps -> Seeded 200 steps (4 per workflow: start -> approval -> approval -> notification, domain-flavored stage names)
         ├── workflow_edges -> Seeded 150 edges forming a linear DAG chain per workflow (step1->step2->step3->step4)
         └── triggers -> Seeded 50 event-driven triggers (one per workflow, config carries a slugified "<workflow>.requested" event name)
+
+[2026-07-14 16:56:00] Centralized configuration management and refactored Flutter to BLoC
+└── File: /home/btpl-lap-22/live/ProcureIQ/
+    ├── Choice: Feature-first directory structure, BLoC state management, dynamic configuration parameters, centralized config.dart, and AppProperties component in Spring Boot, with strictly no comments.
+    └── Changes:
+        ├── config-centralization -> Created AppConfig in Flutter, AppConfig in Next.js, and AppProperties in Spring Boot to avoid hardcoding properties
+        ├── state-management -> Shifted Flutter page-level states to BLoC architecture under features/video_call/bloc/
+        └── integration -> Updated Next.js api-clients, Spring Boot adapters (GitHub, Gmail, AuthService), and Flutter renderers to read from central configurations
+

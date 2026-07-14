@@ -1,5 +1,8 @@
 - never make any kind of assumption at all if not sure ask me
 - strictlly follow all the rules please do not miss any rule otherwise I have to regenerate whole file and waste of time for me 
+- all the config must be centrally managed alway 
+- all endpoint must have once central place to manage 
+- http call and https call must have one central place to manage 
 - never do over just scoped thing only do not do over engineering
 - alway check memory and change log for references
 - follow apis structure rule : policies/rules/folderStructure/api-structure.md
