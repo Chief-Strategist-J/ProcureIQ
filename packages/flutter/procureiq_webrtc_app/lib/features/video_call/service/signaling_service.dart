@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../../shared/config.dart';
+import '../model/signaling_message.dart';
 
 class SignalingService {
   WebSocketChannel? _channel;
@@ -54,9 +55,10 @@ class SignalingService {
       
       _channel!.stream.listen(
         (message) {
-          final data = jsonDecode(message);
+          final raw = jsonDecode(message) as Map<String, dynamic>;
+          final msg = SignalingMessage.fromJson(raw);
           _handleMessage(
-            data: data,
+            msg: msg,
             roomId: roomId,
             userId: userId,
             onLog: onLog,
@@ -75,11 +77,11 @@ class SignalingService {
         },
       );
 
-      _send({
-        'type': 'join',
-        'roomId': roomId,
-        'userId': userId,
-      });
+      _send(SignalingMessage(
+        type: 'join',
+        roomId: roomId,
+        userId: userId,
+      ));
 
       onLog('Joined room $roomId as $userId', 'success');
     } catch (e) {
@@ -88,7 +90,7 @@ class SignalingService {
   }
 
   Future<void> _handleMessage({
-    required Map<String, dynamic> data,
+    required SignalingMessage msg,
     required String roomId,
     required String userId,
     required Function(String, String) onLog,
@@ -96,14 +98,14 @@ class SignalingService {
     required Function() onPeerLeft,
     required Function(MediaStream) onRemoteStream,
   }) async {
-    final type = data['type'];
-    final senderId = data['senderId'] ?? '';
+    final type = msg.type;
+    final senderId = msg.senderId ?? '';
 
     onLog('Signaling received: $type', 'info');
 
     switch (type) {
       case 'peer-joined':
-        final peerId = data['userId'];
+        final peerId = msg.userId ?? '';
         onPeerJoined(peerId);
         onLog('New peer discovered: $peerId. Sending WebRTC Offer...', 'info');
         
@@ -111,36 +113,36 @@ class SignalingService {
         final offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         
-        _send({
-          'type': 'offer',
-          'roomId': roomId,
-          'senderId': userId,
-          'receiverId': peerId,
-          'sdp': offer.sdp,
-        });
+        _send(SignalingMessage(
+          type: 'offer',
+          roomId: roomId,
+          senderId: userId,
+          receiverId: peerId,
+          sdp: offer.sdp,
+        ));
         break;
 
       case 'offer':
         onLog('SDP Offer received from $senderId. Replying with SDP Answer...', 'info');
         final pc = await _createPeerConnection(senderId, roomId, userId, onLog, onRemoteStream);
-        await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], 'offer'));
+        await pc.setRemoteDescription(RTCSessionDescription(msg.sdp, 'offer'));
         
         final answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         
-        _send({
-          'type': 'answer',
-          'roomId': roomId,
-          'senderId': userId,
-          'receiverId': senderId,
-          'sdp': answer.sdp,
-        });
+        _send(SignalingMessage(
+          type: 'answer',
+          roomId: roomId,
+          senderId: userId,
+          receiverId: senderId,
+          sdp: answer.sdp,
+        ));
         break;
 
       case 'answer':
         onLog('SDP Answer received. Completing peer connection handshake.', 'success');
         if (_peerConnection != null) {
-          await _peerConnection!.setRemoteDescription(RTCSessionDescription(data['sdp'], 'answer'));
+          await _peerConnection!.setRemoteDescription(RTCSessionDescription(msg.sdp, 'answer'));
         }
         break;
 
@@ -148,9 +150,9 @@ class SignalingService {
         onLog('ICE Candidate received. Adding network relay point...', 'info');
         if (_peerConnection != null) {
           await _peerConnection!.addCandidate(RTCIceCandidate(
-            data['candidate'],
-            data['sdpMid'],
-            data['sdpMLineIndex'],
+            msg.candidate,
+            msg.sdpMid,
+            msg.sdpMLineIndex,
           ));
         }
         break;
@@ -185,15 +187,15 @@ class SignalingService {
 
     pc.onIceCandidate = (candidate) {
       if (candidate.candidate != null && _channel != null) {
-        _send({
-          'type': 'candidate',
-          'roomId': roomId,
-          'senderId': userId,
-          'receiverId': targetPeerId,
-          'candidate': candidate.candidate,
-          'sdpMid': candidate.sdpMid,
-          'sdpMLineIndex': candidate.sdpMLineIndex,
-        });
+        _send(SignalingMessage(
+          type: 'candidate',
+          roomId: roomId,
+          senderId: userId,
+          receiverId: targetPeerId,
+          candidate: candidate.candidate,
+          sdpMid: candidate.sdpMid,
+          sdpMLineIndex: candidate.sdpMLineIndex,
+        ));
       }
     };
 
@@ -209,19 +211,19 @@ class SignalingService {
     return pc;
   }
 
-  void _send(Map<String, dynamic> msg) {
+  void _send(SignalingMessage message) {
     if (_channel != null) {
-      _channel!.sink.add(jsonEncode(msg));
+      _channel!.sink.add(jsonEncode(message.toJson()));
     }
   }
 
   void disconnect(String roomId, String userId) {
     if (_channel != null) {
-      _send({
-        'type': 'leave',
-        'roomId': roomId,
-        'userId': userId,
-      });
+      _send(SignalingMessage(
+        type: 'leave',
+        roomId: roomId,
+        userId: userId,
+      ));
       _channel!.sink.close();
       _channel = null;
     }
