@@ -315,4 +315,11 @@
         ├── voice-adapters -> Refactored TwilioVoiceAdapter and VapiVoiceAdapter to load base API endpoints from AppProperties
         └── config-extension -> Added twilioApiBase and vapiCallsEndpoint variables to AppProperties
 
+[2026-07-14 17:04:00] Centralized handler method sub-path mappings in Spring Boot controllers
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Appended method sub-paths (like /{id}, /schedules, etc.) to ApiEndpoints constant registry, with strictly no comments.
+    └── Changes:
+        └── handler-methods -> Replaced hardcoded sub-path strings in all 30 controller classes with ApiEndpoints constants
+
+
 
