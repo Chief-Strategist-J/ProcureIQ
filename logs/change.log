@@ -349,6 +349,19 @@
         ├── dto-rules -> Added validation constraints (NotBlank, NotNull, Size, Min, Max, Email) to SignupRequest, LoginRequest, TimeSlotRequest, WorkOrderRequest, JobRequest, WorkflowRequest, CampaignRequest
         └── trace-validator -> Configured TracingHelper to parse and compile MethodArgumentNotValidException violations into client friendly error messages
 
+[2026-07-14 17:22:00] Reorganized all Spring Boot feature DTO classes into separate request/response folders
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Restructured feature DTO directories under request/ and response/ sub-packages and corrected all class packages and imports, with strictly no comments.
+    └── Changes:
+        ├── auth-dto -> Separated auth DTOs under dto/request/ and dto/response/
+        ├── notifications-dto -> Separated notification DTOs under dto/request/ and dto/response/
+        ├── fieldservice-dto -> Separated fieldservice DTOs under dto/request/ and dto/response/
+        ├── jobs-dto -> Separated job DTOs under dto/request/ and dto/response/
+        ├── campaigns-dto -> Separated campaign DTOs under dto/request/ and dto/response/
+        ├── response-wrappers -> Replaced ApiResponse with ApiSingleResponse and ApiListResponse to separate single vs list payload structures
+        └── imports -> Updated imports across 50+ classes to reference new DTO locations
+
+
 
 
 
