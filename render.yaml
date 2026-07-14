@@ -6,3 +6,10 @@ services:
     startCommand: java -jar target/springboot-app-0.0.1-SNAPSHOT.jar
     cacheDirectories:
       - .m2/repository
+
+  - type: web
+    name: procureiq-webrtc-signaling
+    runtime: docker
+    dockerContext: packages/node/procureiq-webrtc
+    dockerfilePath: Dockerfile
+    plan: free
