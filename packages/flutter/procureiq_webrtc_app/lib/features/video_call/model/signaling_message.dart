@@ -9,7 +9,7 @@ class SignalingMessage {
   final String? sdpMid;
   final int? sdpMLineIndex;
 
-  SignalingMessage({
+  const SignalingMessage({
     required this.type,
     required this.roomId,
     this.userId,
