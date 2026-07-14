@@ -1,0 +1,15 @@
+feature: webrtc-signaling
+description: Custom real-time signaling coordinator for WebRTC peer connection handshakes.
+business_logic:
+  - Facilitates room-based joining and leaving for dispatcher and field technician calls.
+  - Relays WebRTC session description protocol (SDP) offers, answers, and ICE candidate objects between clients in a given room.
+dependencies:
+  - ws: High-performance WebSocket library for Node.js.
+architecture:
+  - Stateful in-memory room registry to manage peer groups.
+  - Client connections are authenticated and routed on connection.
+networking:
+  - Runs on port 8082 for WebSocket protocol communication.
+  - Clients establish ws:// or wss:// tunnels to negotiate media connections.
+criticality:
+  - Critical path for enabling live audio and video synchronization between dispatcher panels and field agents.

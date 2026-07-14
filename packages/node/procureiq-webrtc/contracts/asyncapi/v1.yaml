@@ -1,0 +1,142 @@
+asyncapi: 2.6.0
+info:
+  title: ProcureIQ WebRTC Signaling WebSocket Contract
+  version: 1.0.0
+  description: Handles WebRTC PeerConnection negotiation (SDP Offers/Answers and ICE Candidates) for multi-user rooms.
+
+servers:
+  dev:
+    url: ws://localhost:8082/api/v1/webrtc/signaling
+    protocol: ws
+    description: Local development WebSocket server
+
+channels:
+  /api/v1/webrtc/signaling:
+    subscribe:
+      message:
+        oneOf:
+          - $ref: '#/components/messages/JoinMessage'
+          - $ref: '#/components/messages/OfferMessage'
+          - $ref: '#/components/messages/AnswerMessage'
+          - $ref: '#/components/messages/IceCandidateMessage'
+          - $ref: '#/components/messages/LeaveMessage'
+    publish:
+      message:
+        oneOf:
+          - $ref: '#/components/messages/PeerJoinedMessage'
+          - $ref: '#/components/messages/OfferMessage'
+          - $ref: '#/components/messages/AnswerMessage'
+          - $ref: '#/components/messages/IceCandidateMessage'
+          - $ref: '#/components/messages/PeerLeftMessage'
+
+components:
+  messages:
+    JoinMessage:
+      name: join
+      title: Join Room
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [join]
+          roomId:
+            type: string
+          userId:
+            type: string
+
+    LeaveMessage:
+      name: leave
+      title: Leave Room
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [leave]
+          roomId:
+            type: string
+          userId:
+            type: string
+
+    OfferMessage:
+      name: offer
+      title: WebRTC SDP Offer
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [offer]
+          roomId:
+            type: string
+          senderId:
+            type: string
+          receiverId:
+            type: string
+          sdp:
+            type: string
+
+    AnswerMessage:
+      name: answer
+      title: WebRTC SDP Answer
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [answer]
+          roomId:
+            type: string
+          senderId:
+            type: string
+          receiverId:
+            type: string
+          sdp:
+            type: string
+
+    IceCandidateMessage:
+      name: candidate
+      title: WebRTC ICE Candidate
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [candidate]
+          roomId:
+            type: string
+          senderId:
+            type: string
+          receiverId:
+            type: string
+          candidate:
+            type: string
+          sdpMid:
+            type: string
+          sdpMLineIndex:
+            type: integer
+
+    PeerJoinedMessage:
+      name: peer-joined
+      title: Peer Joined Notification
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [peer-joined]
+          userId:
+            type: string
+
+    PeerLeftMessage:
+      name: peer-left
+      title: Peer Left Notification
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [peer-left]
+          userId:
+            type: string

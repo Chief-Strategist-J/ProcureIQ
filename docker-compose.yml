@@ -69,6 +69,13 @@ services:
       - jaeger
     restart: always
 
+  webrtc-server:
+    build: ./packages/node/procureiq-webrtc
+    container_name: procureiq-webrtc-server
+    ports:
+      - "8082:8082"
+    restart: always
+
 volumes:
   alloydb_data:
     driver: local
