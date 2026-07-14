@@ -1,0 +1,15 @@
+feature: flutter-video-call
+description: Custom real-time video and audio communicator for mobile clients using WebRTC.
+business_logic:
+  - Enters virtual video rooms using WebSocket signaling coordination.
+  - Implements the WebRTC SDP handshake, tracks capture, and render pipelines.
+  - State management uses BLoC pattern for clean separation of signaling events, local stream toggling, and UI representations.
+dependencies:
+  - flutter_webrtc: Native WebRTC wrapper for camera/microphone stream capture and video rendering.
+  - web_socket_channel: High-performance raw WebSocket streams in Dart.
+  - flutter_bloc: State management library enforcing unidirectional data flows.
+architecture:
+  - Unidirectional state streams (VideoCallBloc) consuming events and emitting states to BlocBuilder UI layers.
+  - Media streaming operations are isolated in SignalingService.
+criticality:
+  - Critical component enabling mobile client integration to join existing nextjs video call workspaces.
