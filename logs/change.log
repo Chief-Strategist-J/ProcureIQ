@@ -391,6 +391,22 @@
         ├── helper -> Added executeServiceWithTracing and executeServiceVoidWithTracing dynamic lambdas in TracingHelper.java
         └── services-refactor -> Cleaned up manual tracer.spanBuilder usages and try-finally blocks in 30 service and adapter classes (yielding a net reduction of over 300 lines)
 
+[2026-07-14 17:37:00] Extracted repeating DTO entity mapping into static fromEntity record factory methods
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Created a static fromEntity method in CampaignResponse record to centralize repeating JPA-to-DTO conversion blocks, with strictly no comments.
+    └── Changes:
+        ├── response-dto -> Added static fromEntity mapping method to CampaignResponse.java
+        └── service-dry -> Refactored CampaignService.java methods to consume the centralized fromEntity mapping helper
+
+[2026-07-14 17:41:00] Replaced all repeating model DTO mapping constructor blocks with centralized fromEntity record factory methods
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Created static fromEntity methods inside 10 core Response records and updated service mapping stream lambdas, with strictly no comments.
+    └── Changes:
+        ├── response-dtos -> Added fromEntity methods to WorkOrderResponse, ServiceTerritoryResponse, ServiceResourceResponse, TimeSlotResponse, OperatingHoursResponse, ServiceAppointmentResponse, WorkflowRunResponse, WorkflowResponse, JobRunResponse, JobResponse
+        └── service-dry -> Refactored WorkOrderService, ServiceTerritoryService, ServiceResourceService, TimeSlotService, OperatingHoursService, ServiceAppointmentService, JobService methods to consume the centralized fromEntity factory helpers
+
+
+
 
 
 
