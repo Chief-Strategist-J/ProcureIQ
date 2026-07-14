@@ -318,8 +318,14 @@
 [2026-07-14 17:04:00] Centralized handler method sub-path mappings in Spring Boot controllers
 └── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
     ├── Choice: Appended method sub-paths (like /{id}, /schedules, etc.) to ApiEndpoints constant registry, with strictly no comments.
-    └── Changes:
         └── handler-methods -> Replaced hardcoded sub-path strings in all 30 controller classes with ApiEndpoints constants
+
+[2026-07-14 17:09:00] Centralized OpenTelemetry tracing boilerplate in Spring Boot controllers
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Created TracingHelper wrapper utility dynamically resolving span names from calling stack traces to DRY controllers and unify status mapping, with strictly no comments.
+    └── Changes:
+        └── controllers -> Replaced duplicate try-catch-finally tracing boilerplate across 30 controller classes with unified TracingHelper.executeWithTracing lambda calls
+
 
 
 
