@@ -37,6 +37,7 @@ dependencies:
   flutter_webrtc: ^1.5.2
   web_socket_channel: ^3.0.3
   flutter_bloc: ^9.1.1
+  get_it: ^7.6.0
 
 dev_dependencies:
   flutter_test:
