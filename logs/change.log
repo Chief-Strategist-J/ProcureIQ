@@ -307,3 +307,12 @@
         ├── state-management -> Shifted Flutter page-level states to BLoC architecture under features/video_call/bloc/
         └── integration -> Updated Next.js api-clients, Spring Boot adapters (GitHub, Gmail, AuthService), and Flutter renderers to read from central configurations
 
+[2026-07-14 17:03:00] Centralized REST request mapping endpoints and outbound voice adapter URLs in Spring Boot
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Created ApiEndpoints constant registry for compile-time RequestMapping definitions and centralized outbound voice URLs in AppProperties, with strictly no comments.
+    └── Changes:
+        ├── request-mappings -> Replaced hardcoded request mapping paths in 30 controller classes with ApiEndpoints constants
+        ├── voice-adapters -> Refactored TwilioVoiceAdapter and VapiVoiceAdapter to load base API endpoints from AppProperties
+        └── config-extension -> Added twilioApiBase and vapiCallsEndpoint variables to AppProperties
+
+

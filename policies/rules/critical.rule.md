@@ -2,6 +2,7 @@
 - strictlly follow all the rules please do not miss any rule otherwise I have to regenerate whole file and waste of time for me 
 - all the config must be centrally managed alway 
 - all endpoint must have once central place to manage 
+- them must be consistant and in one place managed 
 - http call and https call must have one central place to manage 
 - never do over just scoped thing only do not do over engineering
 - alway check memory and change log for references
