@@ -405,6 +405,13 @@
         ├── response-dtos -> Added fromEntity methods to WorkOrderResponse, ServiceTerritoryResponse, ServiceResourceResponse, TimeSlotResponse, OperatingHoursResponse, ServiceAppointmentResponse, WorkflowRunResponse, WorkflowResponse, JobRunResponse, JobResponse
         └── service-dry -> Refactored WorkOrderService, ServiceTerritoryService, ServiceResourceService, TimeSlotService, OperatingHoursService, ServiceAppointmentService, JobService methods to consume the centralized fromEntity factory helpers
 
+[2026-07-14 17:44:00] Added null-guard conditions before all setters in update methods across all services
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Wrapped every unconditional entity.setX(request.x()) call in update methods with if (request.x() != null) to avoid overwriting existing data with null values, with strictly no comments.
+    └── Changes:
+        └── 22 service files -> GuardedServiceResourceSkillService, ResourceAbsenceService, ServiceCrewMemberService, SkillService, AssetRelationshipService, ServiceCrewService, WorkTypeService, ServiceResourceCapacityService, CaseMilestoneService, SkillRequirementService, ServiceTerritoryService, ServiceResourceService, ServiceTerritoryMemberService, MilestoneService, MaintenancePlanService, TimeSlotService, ShiftService, ResourcePreferenceService, OperatingHoursService, ServiceAppointmentService, JobService, CampaignService
+
+
 
 
 
