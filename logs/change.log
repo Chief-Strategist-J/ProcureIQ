@@ -340,6 +340,16 @@
         ├── model -> Created SignalingMessage model class under lib/features/video_call/model/
         └── service -> Refactored SignalingService to send and receive structured SignalingMessage objects
 
+[2026-07-14 17:17:00] Centralized request payload validations using JSR-380 in Spring Boot
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/java/procureiq-springboot/
+    ├── Choice: Added spring-boot-starter-validation dependency, decorated all controller request body mappings with @Valid, and implemented validation rules on core DTO fields, with strictly no comments.
+    └── Changes:
+        ├── build -> Added spring-boot-starter-validation to pom.xml
+        ├── controller-mappings -> Added @Valid to all controller @RequestBody parameters
+        ├── dto-rules -> Added validation constraints (NotBlank, NotNull, Size, Min, Max, Email) to SignupRequest, LoginRequest, TimeSlotRequest, WorkOrderRequest, JobRequest, WorkflowRequest, CampaignRequest
+        └── trace-validator -> Configured TracingHelper to parse and compile MethodArgumentNotValidException violations into client friendly error messages
+
+
 
 
 
