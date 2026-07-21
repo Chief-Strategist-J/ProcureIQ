@@ -29,6 +29,47 @@ This command builds and runs:
 
 ---
 
+## Standalone Development (Individual Services)
+
+If you prefer to run services individually without Docker Compose, you can configure your connection settings in **one place** using the root [.env](file:///home/btpl-lap-22/live/ProcureIQ/.env) file. 
+
+#### Configure Mode:
+In the root [.env](file:///home/btpl-lap-22/live/ProcureIQ/.env) file, change the `PROCUREIQ_ENV` variable:
+- `PROCUREIQ_ENV=local`: Runs everything pointing to your local AlloyDB Omni database and local APIs.
+- `PROCUREIQ_ENV=production`: Runs everything pointing to the production remote Supabase DB / APIs.
+
+#### 1. Database (AlloyDB Omni)
+```bash
+./deploy/alloydb/alloydb-cli.sh local-up
+```
+
+#### 2. Java Backend (Spring Boot)
+```bash
+./scripts/run-dev.sh springboot
+```
+
+#### 3. Python Backend (FastAPI)
+```bash
+./scripts/run-dev.sh python
+```
+
+#### 4. Frontend (Next.js)
+```bash
+./scripts/run-dev.sh frontend
+```
+
+#### 5. Local Database Backup
+```bash
+./scripts/run-dev.sh backup
+```
+
+#### 6. Local Database Restore
+```bash
+./scripts/run-dev.sh restore
+```
+
+---
+
 ## AlloyDB CLI Command Reference
 
 Execute database commands using the CLI wrapper script [deploy/alloydb/alloydb-cli.sh](file:///home/btpl-lap-22/live/ProcureIQ/deploy/alloydb/alloydb-cli.sh).
