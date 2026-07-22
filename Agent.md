@@ -6,7 +6,8 @@ This document compiles and references all critical guidelines, folder structures
 
 ## 🛑 Critical & Non-Negotiable Rules
 - never delete anything insted fix existing code first actually and new changes should not break existing changes new changes must be conditional and addictive and try to use declarative approch please 
-
+- never write logic in frontend
+- use statemenagemet in frontend and maintain saga pattern please 
 The absolute non-negotiable rules for the project are defined in the [Critical Rules](file:///home/btpl-lap-22/live/ProcureIQ/policies/rules/critical.rule.md) policy. Key mandates include:
 
 1. **No Assumptions**: Never make assumptions. If anything is unclear, ask the user.
