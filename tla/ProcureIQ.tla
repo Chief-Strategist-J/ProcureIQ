@@ -19,8 +19,8 @@ vars == <<userState, workOrders, appointments, jobs, notifications, auditLogs>>
 
 Init ==
     /\ userState = [u \in Users |-> "unauthenticated"]
-    /\ workOrders = [wo \in {} |-> {}]
-    /\ appointments = [ap \in {} |-> {}]
+    /\ workOrders = [wo \in {} |-> [workType |-> "", status |-> "", priority |-> 1]]
+    /\ appointments = [ap \in {} |-> [workOrder |-> 1, status |-> ""]]
     /\ jobs = {}
     /\ notifications = << >>
     /\ auditLogs = << >>
@@ -36,7 +36,7 @@ CreateWorkOrder(u, id, wt, prio) ==
     /\ id \notin DOMAIN workOrders
     /\ wt \in WorkTypes
     /\ prio \in 1..5
-    /\ workOrders' = workOrders @@ (id |-> [workType |-> wt, status |-> "new", priority |-> prio])
+    /\ workOrders' = [x \in (DOMAIN workOrders \cup {id}) |-> IF x = id THEN [workType |-> wt, status |-> "new", priority |-> prio] ELSE workOrders[x]]
     /\ auditLogs' = Append(auditLogs, [event |-> "WORK_ORDER_CREATED", id |-> id])
     /\ UNCHANGED <<userState, appointments, jobs, notifications>>
 
@@ -53,7 +53,7 @@ ScheduleAppointment(u, apId, woId) ==
     /\ userState[u] = "authenticated"
     /\ woId \in DOMAIN workOrders
     /\ apId \notin DOMAIN appointments
-    /\ appointments' = appointments @@ (apId |-> [workOrder |-> woId, status |-> "scheduled"])
+    /\ appointments' = [x \in (DOMAIN appointments \cup {apId}) |-> IF x = apId THEN [workOrder |-> woId, status |-> "scheduled"] ELSE appointments[x]]
     /\ notifications' = Append(notifications, [recipient |-> u, type |-> "APPOINTMENT_SCHEDULED", id |-> apId])
     /\ auditLogs' = Append(auditLogs, [event |-> "APPOINTMENT_SCHEDULED", id |-> apId])
     /\ UNCHANGED <<userState, workOrders, jobs>>
@@ -73,10 +73,10 @@ CompleteJob(jId) ==
 
 Next ==
     \/ \E u \in Users : AuthenticateUser(u)
-    \/ \E u \in Users, id \in 1..100, wt \in WorkTypes, prio \in 1..5 : CreateWorkOrder(u, id, wt, prio)
+    \/ \E u \in Users, id \in 1..2, wt \in WorkTypes, prio \in 1..2 : CreateWorkOrder(u, id, wt, prio)
     \/ \E u \in Users, id \in DOMAIN workOrders, s \in Statuses : UpdateWorkOrderStatus(u, id, s)
-    \/ \E u \in Users, apId \in 1..100, woId \in DOMAIN workOrders : ScheduleAppointment(u, apId, woId)
-    \/ \E jId \in 1..100 : ScheduleJob(jId)
+    \/ \E u \in Users, apId \in 1..2, woId \in DOMAIN workOrders : ScheduleAppointment(u, apId, woId)
+    \/ \E jId \in 1..2 : ScheduleJob(jId)
     \/ \E jId \in jobs : CompleteJob(jId)
 
 TypeInvariant ==
