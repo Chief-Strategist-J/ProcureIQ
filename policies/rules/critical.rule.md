@@ -13,7 +13,8 @@
 - alway use opentelemetry for distributed tracing
 - alway write test cases and code for same and run test case after code change
 - stricty follow all the rules policies/rules/codeQuality/coupling-strength-spectrum.md, policies/rules/codeQuality/dry.md, policies/rules/codeQuality/function-parameter-limit-rule.md,
-policies/rules/codeQuality/package-namming-rules.md, policies/rules/codeQuality/prototype.md,policies/rules/codeQuality/srp.md, policies/rules/codeQuality/typecasting-rules.md
+policies/rules/codeQuality/package-namming-rules.md, policies/rules/codeQuality/prototype.md, policies/rules/codeQuality/srp.md, policies/rules/codeQuality/typecasting-rules.md,
+policies/rules/codeQuality/react-hook-state.md, policies/rules/codeQuality/state-management.md, policies/rules/codeQuality/redux.md
 
 - alway update contracts first then migration related files if has change and then code 
 - use existing library of package methods insted of writing code from scrach
