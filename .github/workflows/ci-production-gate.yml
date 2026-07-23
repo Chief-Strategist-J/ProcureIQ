@@ -1,0 +1,87 @@
+name: Production Readiness & Quality Gate CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  java-backend-validation:
+    name: Java Backend Validation (Strict Hibernate & Unit/Integration Tests)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: procureiq
+          POSTGRES_USER: procureiq
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build & Run Spring Boot Unit & Integration Tests
+        run: |
+          cd packages/java/procureiq-springboot
+          ./mvnw clean verify -Dspring.jpa.hibernate.ddl-auto=validate
+
+  api-integration-test-suite:
+    name: 152 REST Endpoint Integration Tests (Pytest)
+    needs: java-backend-validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Pytest & Dependencies
+        run: |
+          cd packages/python/procureiq-python
+          pip install pytest pytest-asyncio
+
+      - name: Run Backend App & Execute 152 Endpoint Pytest Suite
+        run: |
+          cd packages/python/procureiq-python
+          pytest -v tests/integration/test_java_backend_api.py
+
+  tla-formal-specification-check:
+    name: TLA+ Formal Specification Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17 for TLC Model Checker
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Run TLC Model Checker on TLA+ Specifications
+        run: |
+          cd tla
+          java -cp tla2tools.jar tlc2.TLC -config ProcureIQ.cfg ProcureIQ.tla
