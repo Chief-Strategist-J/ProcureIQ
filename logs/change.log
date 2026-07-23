@@ -1,3 +1,11 @@
+[2026-07-23 16:51:30] Added Binance Crypto & Time Series Analytics feature
+└── File: packages/java/procureiq-springboot/ & packages/python/procureiq-python/
+    ├── Choice: Centralized environment configuration with OpenTelemetry tracing & Python NumPy engine
+    └── Changes:
+        ├── springboot-app -> Added CryptoController, CryptoService, and DTOs bound to centralized properties
+        ├── python-app -> Added TimeSeriesAnalyzer service and FastAPI analytics handler
+        └── test-suite -> Added crypto, ticker, orderbook, and stock market test cases to pytest suite
+
 [2026-07-06 15:29:22] Created flow file for Dispatched Quantity
 └── File: flow/dispatched-quantity.yml
     ├── Choice: YAML format for flow-centric mapping
@@ -415,3 +423,116 @@
     ├── Choice: Updated legacy wildcard imports in test files to point to the newly reorganized request/response DTO subpackages
     └── Changes:
         └── test-imports -> Updated JobControllerTest, CampaignControllerTest, FieldServiceControllerTest, NotificationControllerTest, AuthControllerTest, and AuthServiceTest
+
+[2026-07-23T18:05:20.214837] Integrate Crypto APIs into Next.js package
+└── File: packages/node/procureiq-nextjs
+    ├── Choice: Added Crypto Feature Module following folderStructure and codeQuality policies
+    └── Changes:
+        ├── config -> Updated src/config/api-endpoints.ts with centrally managed crypto endpoints
+        ├── features -> Created src/features/crypto (types.ts, service.ts, index.ts, cryptoService.test.ts)
+        ├── api -> Created src/app/api/v1/crypto/route.ts route handler proxy
+        └── ui -> Created src/app/crypto/page.tsx dashboard and added quick action to homepage
+
+[2026-07-23T18:13:05.078999] Configure global CORS filter in Spring Boot SecurityConfig
+└── File: packages/java/procureiq-springboot/src/main/java/com/procureiq/springboot_app/infra/config/SecurityConfig.java
+    ├── Choice: Configured global CorsConfigurationSource in SecurityFilterChain
+    └── Changes:
+        └── SecurityConfig -> Added CorsConfiguration allowing all origins (*), headers (*), and HTTP methods (GET, POST, PUT, DELETE, OPTIONS, PATCH) across all endpoints including exception responses
+
+[2026-07-23T18:15:03.264901] Configure Next.js rewrites proxy to permanently resolve browser CORS issues
+└── File: packages/node/procureiq-nextjs
+    ├── Choice: Configured Next.js rewrites proxy and same-origin relative pathing in client side calls
+    └── Changes:
+        ├── next.config.ts -> Added rewrites rule for '/api/v1/:path*' to destination 'http://localhost:6565/api/v1/:path*'
+        └── src/config/app-config.ts -> Configured client-side default apiUrl to relative string ('') so browser requests bypass cross-origin restrictions completely
+
+[2026-07-23T18:16:14.532873] Enforce central environment configuration across Next.js app
+└── File: packages/node/procureiq-nextjs
+    ├── Choice: Removed all inline/hardcoded fallback URLs in favor of single root .env configuration
+    └── Changes:
+        ├── next.config.ts -> Dynamically reads rewrite proxy target from process.env (SPRINGBOOT_BACKEND_URL / NEXT_PUBLIC_API_URL)
+        └── src/config/app-config.ts -> Strictly uses process.env.NEXT_PUBLIC_API_URL, process.env.NEXT_PUBLIC_PYTHON_API_URL, and process.env.NEXT_PUBLIC_WEBRTC_SIGNALING_URL with zero hardcoded values
+
+[2026-07-23T18:16:40.030613] Fix duplicate request cancellation & abort retry loop bug in apiClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/apiClient.ts
+    ├── Choice: Scoped AbortController cancellation strictly to GET requests without custom signals
+    └── Changes:
+        └── apiClient.ts -> Properly clean activeRequests Map when requests finish or abort, and prevent aborted requests from triggering 3x retry backoff loops
+
+[2026-07-23T18:17:37.423502] Remove global automatic AbortController map from apiClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/apiClient.ts
+    ├── Choice: Removed global activeRequests map duplicate cancellation
+    └── Changes:
+        └── apiClient.ts -> Eliminated automatic request abortion across parallel component fetches (such as initial page loads fetching territories, resources, appointments, operating hours concurrently)
+
+[2026-07-23T18:18:15.448508] Optimize HTTP client retry parameters in apiClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/apiClient.ts
+    ├── Choice: Lowered default retry count from 3 to 1 and backoff delay from 500ms to 200ms
+    └── Changes:
+        └── apiClient.ts -> Faster fallback execution without long 3-attempt delay loops
+
+[2026-07-23T18:19:17.856097] Fix empty array falsy check in fallbackClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/fallbackClient.ts
+    ├── Choice: Changed  check to 
+    └── Changes:
+        └── fallbackClient.ts -> Empty arrays () returned by Spring Boot endpoints like operating-hours are now recognized as valid successful responses rather than triggering fallback warnings
+
+[2026-07-23T18:19:28.099583] Fix empty array falsy check in fallbackClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/fallbackClient.ts
+    ├── Choice: Changed if(data) check to if(data !== undefined && data !== null)
+    └── Changes:
+        └── fallbackClient.ts -> Empty arrays returned by Spring Boot endpoints like operating-hours are now recognized as valid successful responses
+
+[2026-07-23T18:20:19.358028] Audit and fix data null check patterns across fallback helpers
+└── File: packages/node/procureiq-nextjs/src/shared/utils/fallbackClient.ts
+    ├── Choice: Replaced all loose boolean  checks with strict non-null/undefined checks 
+    └── Changes:
+        └── fallbackClient.ts -> Applied strict non-null checks in both  and  functions across the application
+
+[2026-07-23T18:20:29.924486] Audit and fix data null check patterns across fallback helpers
+└── File: packages/node/procureiq-nextjs/src/shared/utils/fallbackClient.ts
+    ├── Choice: Replaced loose boolean check with strict non-null check
+    └── Changes:
+        └── fallbackClient.ts -> Applied strict non-null checks in both fetch and mutate fallback helpers
+
+[2026-07-23T18:22:16.482288] Implement Exponential Backoff with Jitter in apiClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/apiClient.ts
+    ├── Choice: Upgraded HTTP retry loop to Full Jitter Exponential Backoff formula
+    └── Changes:
+        └── apiClient.ts -> Configured formula . Added  parameter interface (, , ).
+
+[2026-07-23T18:22:21.883307] Implement Exponential Backoff with Jitter in apiClient.ts
+└── File: packages/node/procureiq-nextjs/src/shared/utils/apiClient.ts
+    ├── Choice: Upgraded HTTP retry loop to Full Jitter Exponential Backoff formula
+    └── Changes:
+        └── apiClient.ts -> Configured exponential formula with random jitter and max delay cap.
+
+[2026-07-23T18:22:39.773138] Fix browser client AppConfig.apiUrl relative route resolution
+└── File: packages/node/procureiq-nextjs/src/config/app-config.ts
+    ├── Choice: Use typeof window !== 'undefined' check for client-side API requests
+    └── Changes:
+        └── app-config.ts -> Client-side calls are routed via relative paths ('') to trigger Next.js reverse proxy rewrites, while server-side (SSR) calls use NEXT_PUBLIC_API_URL / localhost:6565.
+
+[2026-07-23T18:23:51.510900] Refactor resourceApi.ts to evaluate getBaseUrl dynamically
+└── File: packages/node/procureiq-nextjs/src/shared/utils/resourceApi.ts
+    ├── Choice: Replaced static  module-level evaluation with dynamic  helper function
+    └── Changes:
+        └── resourceApi.ts -> Fixes client-side CORS issues across all resource APIs by dynamically evaluating relative path URLs on client-side renders.
+
+[2026-07-23T18:23:55.570205] Refactor resourceApi.ts to evaluate getBaseUrl dynamically
+└── File: packages/node/procureiq-nextjs/src/shared/utils/resourceApi.ts
+    ├── Choice: Replaced static module-level BASE evaluation with dynamic getBaseUrl helper function
+    └── Changes:
+        └── resourceApi.ts -> Fixes client-side CORS issues across all resource APIs by dynamically evaluating relative path URLs on client-side renders.
+
+[2026-07-23T18:25:56.097629] Centralize OpenTelemetry tracing via withTraceSpan helper in tracer.ts
+└── File: packages/node/procureiq-nextjs/src/infra/tracing/tracer.ts
+    ├── Choice: Created reusable  helper function for module-wide tracing
+    └── Changes:
+        └── tracer.ts -> Provides central span creation, attribute binding, status management, exception recording, and span cleanup across all features.
+
+[2026-07-23T18:25:59.727907] Centralize OpenTelemetry tracing helper in tracer.ts
+└── File: packages/node/procureiq-nextjs/src/infra/tracing/tracer.ts
+    ├── Choice: Created reusable withTraceSpan helper function for module-wide tracing
+    └── Changes:
+        └── tracer.ts -> Provides central span creation, attribute binding, status management, exception recording, and span cleanup across all features.
