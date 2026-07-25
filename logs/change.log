@@ -536,3 +536,92 @@
     ├── Choice: Created reusable withTraceSpan helper function for module-wide tracing
     └── Changes:
         └── tracer.ts -> Provides central span creation, attribute binding, status management, exception recording, and span cleanup across all features.
+
+[2026-07-23T18:30:36.020158] Add Crypto & Markets navigation item to Sidebar & MobileSidebar
+└── File: packages/node/procureiq-nextjs/src/components/layout
+    ├── Choice: Added BarChart2 icon link for /crypto dashboard
+    └── Changes:
+        ├── sidebar.tsx -> Added Crypto & Markets link to primary desktop navigation
+        └── mobilesidebar.tsx -> Added Crypto & Markets link to mobile navigation
+
+[2026-07-23T18:33:15.202426] Add Currency Selector (USD, EUR, GBP, JPY, INR) to Next.js Crypto Dashboard
+└── File: packages/node/procureiq-nextjs/src/app/crypto/page.tsx
+    ├── Choice: Added dynamic currency selector dropdown with multi-currency conversion rates
+    └── Changes:
+        └── page.tsx -> Allows users to switch display currency between USD ($), EUR (€), GBP (£), JPY (¥), and INR (₹).
+
+[2026-07-23T18:33:36.777558] Fix Supabase prepared statement cache collision during Spring Boot tests
+└── File: packages/java/procureiq-springboot/src/main/resources/application.properties
+    ├── Choice: Added prepareThreshold=0 JDBC query parameter
+    └── Changes:
+        └── application.properties -> Disables PostgreSQL client-side prepared statement caching to resolve PSQLException prepared statement S_1 already exists error in transaction pooler environments.
+
+[2026-07-23T18:34:43.233193] Add Target Currency dropdown to Create Reminder form
+└── File: packages/node/procureiq-nextjs/src/app/reminders/create/page.tsx
+    ├── Choice: Added Target Currency selection input to reminder creation UI
+    └── Changes:
+        └── page.tsx -> Allows scheduling reminders specific to target currencies (USD, EUR, GBP, JPY, INR, BTC, ETH).
+
+[2026-07-23T18:37:41.341816] Refactor Crypto feature state management to Redux Toolkit slice and custom hook
+└── File: packages/node/procureiq-nextjs/src/features/crypto
+    ├── Choice: Implemented Redux Toolkit slice (cryptoSlice.ts) and custom page state hook (CryptoPageState.tsx)
+    └── Changes:
+        ├── cryptoSlice.ts -> Manages Redux state for asset symbol, currency selector, and price alert modal fields
+        ├── CryptoPageState.tsx -> Provides custom hook interface binding Redux state and actions
+        ├── rootReducer.ts -> Registered cryptoReducer under Redux store
+        └── page.tsx -> Refactored UI component to consume state via useCryptoPageState
+
+[2026-07-23T18:40:13.542401] Relax nullable constraint on User.is_active entity column
+└── File: packages/java/procureiq-springboot/src/main/java/com/procureiq/springboot_app/features/identity/entity/User.java
+    ├── Choice: Set nullable = true on is_active column
+    └── Changes:
+        └── User.java -> Allows existing null values in legacy users table without triggering DDL schema alter failures.
+2026-07-25: Micro Frontend Phase 1
+===================================
+Changes made for MFE setup:
+
+ProcureIQ
+├── packages
+│   ├── node
+│   │   ├── procureiq-nextjs
+│   │   │   ├── contracts
+│   │   │   │   └── mfe-contract.yaml (Created MFE contract defining exposed features)
+│   │   │   └── src
+│   │   │       └── event-bus
+│   │   │           ├── emitter.ts (Created typed CustomEvent emitter)
+│   │   │           └── listeners.ts (Created typed CustomEvent listener)
+│   │   └── shared
+│   │       └── contracts
+│   │           └── mfe-events
+│   │               ├── cart.updated.ts (Created event schema)
+│   │               ├── notification.received.ts (Created event schema)
+│   │               └── user.logged-in.ts (Created event schema)
+└── logs
+    └── change.log (Updated with this entry)
+
+[2026-07-25 21:21:00] Enforced MF-2 rule preventing direct imports across feature modules or from shell source trees
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/node/procureiq-nextjs/eslint.config.mjs
+    ├── Choice: Added ESLint `no-restricted-imports` rule in flat config to prevent direct imports between MFE features and from shell.
+    └── Changes:
+        └── eslint-config -> Configured `no-restricted-imports` with patterns `@/features/*/*` and `@/shell/*`.
+
+[2026-07-25T22:06:10] Shell MFE routing configuration
+└── File: packages/node/shell/
+    ├── Choice: Created Shell Router Registry mapping all MFE routes to Next.js multi-zone route definitions
+    └── Changes:
+        ├── mfe-registry.yaml -> Configured MFE routes mapping to remote targets
+        └── mfe-routes.ts -> Created shell rewrites configuration utility reading registry and generating rewrites
+
+2026-07-25: Micro Frontend Phase 4 (Harden)
+===================================
+Changes made for Phase 4 Hardening:
+
+ProcureIQ
+├── packages
+│   └── node
+│       └── procureiq-nextjs
+│           └── scripts
+│               ├── test-contract.sh (Created contract test script to validate mfe-contract.yaml)
+│               └── check-bundle-budget.sh (Created bundle budget assertion script)
+└── logs
+    └── change.log (Updated with Phase 4 hardening changes)
