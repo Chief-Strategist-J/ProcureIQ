@@ -1,0 +1,5 @@
+name: mfe-jobs
+port: 3006
+exposes:
+  - "/mfe-jobs"
+events: []

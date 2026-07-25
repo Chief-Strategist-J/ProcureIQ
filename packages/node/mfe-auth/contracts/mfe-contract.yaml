@@ -1,0 +1,5 @@
+name: mfe-auth
+port: 3002
+exposes:
+  - "/mfe-auth"
+events: []

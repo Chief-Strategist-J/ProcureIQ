@@ -1,0 +1,5 @@
+name: mfe-crypto
+port: 3001
+exposes:
+  - "/mfe-crypto"
+events: []

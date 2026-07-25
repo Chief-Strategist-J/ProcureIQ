@@ -1,0 +1,5 @@
+name: mfe-notifications
+port: 3003
+exposes:
+  - "/mfe-notifications"
+events: []

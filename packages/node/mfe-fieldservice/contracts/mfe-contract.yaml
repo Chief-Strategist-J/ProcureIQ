@@ -1,0 +1,5 @@
+name: mfe-fieldservice
+port: 3004
+exposes:
+  - "/mfe-fieldservice"
+events: []
