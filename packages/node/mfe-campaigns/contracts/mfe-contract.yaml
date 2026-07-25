@@ -1,5 +1,0 @@
-name: mfe-campaigns
-port: 3005
-exposes:
-  - "/mfe-campaigns"
-events: []

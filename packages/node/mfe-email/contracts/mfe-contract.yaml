@@ -1,5 +1,0 @@
-name: mfe-email
-port: 3007
-exposes:
-  - "/mfe-email"
-events: []

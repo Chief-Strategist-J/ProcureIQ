@@ -672,3 +672,12 @@ ProcureIQ
 - All 8 standalone MFEs created successfully with independent configuration.
 - procureiq-nextjs no longer contains duplicate feature implementations.
 - Monolith build and individual MFE builds passing.
+
+[2026-07-25 22:36:22] Migrated standalone micro frontend packages to Next.js monorepo structure
+└── File: /home/btpl-lap-22/live/ProcureIQ/packages/node/procureiq-nextjs/
+    ├── Choice: Moved all standalone MFE packages (mfe-auth, mfe-campaigns, mfe-crypto, mfe-email, mfe-fieldservice, mfe-github, mfe-jobs, mfe-notifications) and the shell directory into procureiq-nextjs to consolidate them. Updated Next.js configuration and MFE contract.
+    └── Changes:
+        ├── mfe-packages -> Moved 8 MFE packages into procureiq-nextjs
+        ├── shell -> Moved shell directory into procureiq-nextjs
+        ├── next-config -> Updated shell route import in procureiq-nextjs/next.config.ts
+        └── mfe-contract -> Updated paths for MFE packages in procureiq-nextjs/contracts/mfe-contract.yaml
