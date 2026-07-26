@@ -97,23 +97,30 @@ run_backend_springboot() {
         echo -e "${YELLOW}Releasing port 6565 if in use...${NC}"
         lsof -t -i:6565 | xargs -r kill -9 >/dev/null 2>&1
         
-        echo -e "${YELLOW}Recreating and restarting local database container...${NC}"
-        docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" down >/dev/null 2>&1
-        docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" up -d >/dev/null 2>&1
-        sleep 5
-        
-        echo -e "${YELLOW}Dropping and recreating database schemas...${NC}"
-        docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >/dev/null 2>&1
+        echo -e "${YELLOW}Ensuring local database container is running...${NC}"
+        if ! docker ps --format '{{.Names}}' | grep -q "^procureiq-alloydb-local$"; then
+            docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" up -d >/dev/null 2>&1
+            sleep 3
+        fi
     fi
     
     setup_local_database_schemas
     run_db_backup
     
-    local props_file="$PROJECT_ROOT/packages/java/procureiq-springboot/src/main/resources/application.properties"
-    if [ "$ENV_MODE" = "local" ] && [ -f "$props_file" ]; then
-        sed -i '/use_jdbc_metadata_defaults/d' "$props_file"
+    # Check if database tables already exist
+    local table_exists
+    if [ "$ENV_MODE" = "local" ]; then
+        table_exists=$(docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -tAc "SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'channel_deliveries');" 2>/dev/null || echo "false")
     fi
-    
+
+    if [ "$table_exists" = "t" ]; then
+        echo -e "${GREEN}Database tables exist. Setting Hibernate DDL-Auto to 'none'...${NC}"
+        export SPRING_JPA_HIBERNATE_DDL_AUTO="none"
+    else
+        echo -e "${YELLOW}Database tables do not exist. Setting Hibernate DDL-Auto to 'update'...${NC}"
+        export SPRING_JPA_HIBERNATE_DDL_AUTO="update"
+    fi
+
     echo -e "${YELLOW}Cleaning target directory for Spring Boot...${NC}"
     cd "$PROJECT_ROOT/packages/java/procureiq-springboot"
     ./mvnw clean
@@ -200,16 +207,54 @@ run_db_restore() {
     fi
 }
 
+run_mfe() {
+    local mfe_name="$1"
+    setup_env_vars
+    echo -e "${YELLOW}Starting Micro Frontend ${mfe_name}...${NC}"
+    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$mfe_name"
+    npm run dev
+}
+
+run_all_mfes() {
+    setup_env_vars
+    echo -e "${YELLOW}Starting all Micro Frontends concurrently...${NC}"
+    
+    local mfes=("procureiq-nextjs:3000" "mfe-crypto:3001" "mfe-auth:3002" "mfe-notifications:3003" "mfe-email:3004" "mfe-campaigns:3005" "mfe-fieldservice:3006" "mfe-github:3007" "mfe-jobs:3008")
+    
+    for item in "${mfes[@]}"; do
+        local name="${item%%:*}"
+        local port="${item##*:}"
+        if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
+            echo -e "${BLUE}Launching $name on port $port...${NC}"
+            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" && npm run dev) &
+        fi
+    done
+    wait
+}
+
 show_help() {
     echo "Usage: ./scripts/run-dev.sh [command]"
     echo ""
-    echo "Commands:"
-    echo "  springboot  - Run the Spring Boot backend only"
-    echo "  python      - Run the FastAPI python backend only"
-    echo "  frontend    - Run the Next.js frontend only"
-    echo "  backup      - Backup the local database"
-    echo "  restore     - Restore the local database from latest backup"
-    echo "  help        - Show this menu"
+    echo "Backend Commands:"
+    echo "  springboot      - Run Spring Boot Java backend (Port 6565)"
+    echo "  python          - Run FastAPI Python backend (Port 8000)"
+    echo ""
+    echo "Frontend & Micro Frontend (MFE) Commands:"
+    echo "  frontend        - Run main Next.js frontend (Port 3000)"
+    echo "  mfe-crypto      - Run MFE Crypto (Port 3001)"
+    echo "  mfe-auth        - Run MFE Auth (Port 3002)"
+    echo "  mfe-notifications - Run MFE Notifications (Port 3003)"
+    echo "  mfe-email       - Run MFE Email (Port 3004)"
+    echo "  mfe-campaigns   - Run MFE Campaigns (Port 3005)"
+    echo "  mfe-fieldservice - Run MFE Field Service (Port 3006)"
+    echo "  mfe-github      - Run MFE GitHub (Port 3007)"
+    echo "  mfe-jobs        - Run MFE Jobs (Port 3008)"
+    echo "  all-mfes        - Run main frontend and all MFEs concurrently"
+    echo ""
+    echo "Database Commands:"
+    echo "  backup          - Backup local database"
+    echo "  restore         - Restore local database from latest backup"
+    echo "  help            - Show this menu"
 }
 
 case "$1" in
@@ -222,6 +267,12 @@ case "$1" in
     frontend)
         run_frontend
         ;;
+    mfe-crypto|mfe-auth|mfe-notifications|mfe-email|mfe-campaigns|mfe-fieldservice|mfe-github|mfe-jobs)
+        run_mfe "$1"
+        ;;
+    all-mfes)
+        run_all_mfes
+        ;;
     backup)
         run_db_backup
         ;;
@@ -232,3 +283,4 @@ case "$1" in
         show_help
         ;;
 esac
+
