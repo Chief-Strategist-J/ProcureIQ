@@ -210,23 +210,35 @@ run_db_restore() {
 run_mfe() {
     local mfe_name="$1"
     setup_env_vars
-    echo -e "${YELLOW}Starting Micro Frontend ${mfe_name}...${NC}"
+    local port=8990
+    case "$mfe_name" in
+        procureiq-nextjs) port=8990 ;;
+        mfe-crypto) port=8991 ;;
+        mfe-auth) port=8992 ;;
+        mfe-notifications) port=8993 ;;
+        mfe-email) port=8994 ;;
+        mfe-campaigns) port=8995 ;;
+        mfe-fieldservice) port=8996 ;;
+        mfe-github) port=8997 ;;
+        mfe-jobs) port=8998 ;;
+    esac
+    echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$mfe_name"
-    npm run dev
+    npm run dev -- -p "$port"
 }
 
 run_all_mfes() {
     setup_env_vars
     echo -e "${YELLOW}Starting all Micro Frontends concurrently...${NC}"
     
-    local mfes=("procureiq-nextjs:3000" "mfe-crypto:3001" "mfe-auth:3002" "mfe-notifications:3003" "mfe-email:3004" "mfe-campaigns:3005" "mfe-fieldservice:3006" "mfe-github:3007" "mfe-jobs:3008")
+    local mfes=("procureiq-nextjs:8990" "mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
     
     for item in "${mfes[@]}"; do
         local name="${item%%:*}"
         local port="${item##*:}"
         if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
             echo -e "${BLUE}Launching $name on port $port...${NC}"
-            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" && npm run dev) &
+            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" && npm run dev -- -p "$port") &
         fi
     done
     wait
@@ -240,15 +252,15 @@ show_help() {
     echo "  python          - Run FastAPI Python backend (Port 8000)"
     echo ""
     echo "Frontend & Micro Frontend (MFE) Commands:"
-    echo "  frontend        - Run main Next.js frontend (Port 3000)"
-    echo "  mfe-crypto      - Run MFE Crypto (Port 3001)"
-    echo "  mfe-auth        - Run MFE Auth (Port 3002)"
-    echo "  mfe-notifications - Run MFE Notifications (Port 3003)"
-    echo "  mfe-email       - Run MFE Email (Port 3004)"
-    echo "  mfe-campaigns   - Run MFE Campaigns (Port 3005)"
-    echo "  mfe-fieldservice - Run MFE Field Service (Port 3006)"
-    echo "  mfe-github      - Run MFE GitHub (Port 3007)"
-    echo "  mfe-jobs        - Run MFE Jobs (Port 3008)"
+    echo "  frontend        - Run main Next.js frontend (Port 8990)"
+    echo "  mfe-crypto      - Run MFE Crypto (Port 8991)"
+    echo "  mfe-auth        - Run MFE Auth (Port 8992)"
+    echo "  mfe-notifications - Run MFE Notifications (Port 8993)"
+    echo "  mfe-email       - Run MFE Email (Port 8994)"
+    echo "  mfe-campaigns   - Run MFE Campaigns (Port 8995)"
+    echo "  mfe-fieldservice - Run MFE Field Service (Port 8996)"
+    echo "  mfe-github      - Run MFE GitHub (Port 8997)"
+    echo "  mfe-jobs        - Run MFE Jobs (Port 8998)"
     echo "  all-mfes        - Run main frontend and all MFEs concurrently"
     echo ""
     echo "Database Commands:"
