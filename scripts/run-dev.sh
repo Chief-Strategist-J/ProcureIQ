@@ -223,8 +223,8 @@ run_mfe() {
         mfe-jobs) port=8998 ;;
     esac
     echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
-    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$mfe_name"
-    npm run dev -- -p "$port"
+    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
+    npx next dev "$mfe_name" -p "$port"
 }
 
 run_all_mfes() {
@@ -238,7 +238,7 @@ run_all_mfes() {
         local port="${item##*:}"
         if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
             echo -e "${BLUE}Launching $name on port $port...${NC}"
-            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" && npm run dev -- -p "$port") &
+            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$name" -p "$port") &
         fi
     done
     wait
