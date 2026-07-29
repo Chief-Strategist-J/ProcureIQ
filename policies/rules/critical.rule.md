@@ -1,4 +1,17 @@
+- do not write unnesassry code please only required one please 
+- strictly declare type for each please 
 - never make any kind of assumption at all if not sure ask me
+- write code which have tracing, and for each function you have to write unite test
+- never hardcode anything, all string, endpoint, theme, constant, enum,s, colors it must declare in centralized place actually
+- code must be small and managable
+- write logic separate from frontend code 
+- each function your writing it must have unite 
+ - 1. test cases( each case must be actually critical, cover all the edge cases)
+ - 2. tla+ file so we know exactly what is happening
+ - 3. is that function is affecting flow then you have to update then flow in yml formate we wi writing
+ - 4. each functioanl or critical function must have proper error handling
+
+- while writing code you have to maintain the adoption or haxagoanl pattern actually
 - strictlly follow all the rules please do not miss any rule otherwise I have to regenerate whole file and waste of time for me 
 - all the config must be centrally managed alway 
 - all endpoint must have once central place to manage 
