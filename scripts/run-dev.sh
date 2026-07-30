@@ -267,20 +267,42 @@ run_mfe() {
     npx next dev "$mfe_name" -p "$port"
 }
 
+wait_for_port() {
+    local host="localhost"
+    local port="$1"
+    local name="$2"
+    local timeout=120
+    local elapsed=0
+    echo -e "${YELLOW}Waiting for $name (port $port) to be ready...${NC}"
+    while ! nc -z "$host" "$port" 2>/dev/null; do
+        sleep 2
+        elapsed=$((elapsed + 2))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            echo -e "${RED}Timeout: $name on port $port did not become ready in ${timeout}s${NC}"
+            return 1
+        fi
+    done
+    # Extra 2s buffer for first-compile response to be ready after port opens
+    sleep 2
+    echo -e "${GREEN}$name is ready on port $port${NC}"
+}
+
 run_all_mfes() {
     setup_env_vars
     echo -e "${YELLOW}Cleaning up any existing ports upfront...${NC}"
     
-    local mfes=("procureiq-nextjs:8990" "mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
-    
-    for item in "${mfes[@]}"; do
+    local mfes=("mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
+    local host="procureiq-nextjs:8990"
+
+    for item in "${mfes[@]}" "$host"; do
         local port="${item##*:}"
         free_port "$port"
     done
 
     echo -e "${YELLOW}Starting all Micro Frontends concurrently with Node memory & compilation optimizations...${NC}"
     export NODE_OPTIONS="--max-old-space-size=4096"
-    
+
+    # Step 1: Start all MFEs in background (excluding host)
     for item in "${mfes[@]}"; do
         local name="${item%%:*}"
         local port="${item##*:}"
@@ -289,6 +311,20 @@ run_all_mfes() {
             (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$name" -p "$port") &
         fi
     done
+
+    # Step 2: Wait for all MFEs to be ready before starting host
+    for item in "${mfes[@]}"; do
+        local name="${item%%:*}"
+        local port="${item##*:}"
+        wait_for_port "$port" "$name" || true
+    done
+
+    # Step 3: Start host app last so it never proxies to a not-yet-ready MFE
+    local host_name="${host%%:*}"
+    local host_port="${host##*:}"
+    echo -e "${GREEN}All MFEs ready. Starting host app $host_name on port $host_port...${NC}"
+    (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$host_name" -p "$host_port") &
+
     wait
 }
 
