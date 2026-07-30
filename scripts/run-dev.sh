@@ -90,12 +90,27 @@ setup_local_database_schemas() {
     fi
 }
 
+free_port() {
+    local target_port="$1"
+    if [ -n "$target_port" ]; then
+        echo -e "${YELLOW}Releasing port ${target_port} if in use...${NC}"
+        fuser -k -9 "${target_port}/tcp" >/dev/null 2>&1 || true
+        lsof -t -i:"${target_port}" | xargs -r kill -9 >/dev/null 2>&1 || true
+        if command -v ss &>/dev/null; then
+            local pids=$(ss -lptn "sport = :${target_port}" 2>/dev/null | grep -oP 'pid=\K\d+')
+            if [ -n "$pids" ]; then
+                echo "$pids" | xargs -r kill -9 >/dev/null 2>&1 || true
+            fi
+        fi
+        sleep 1
+    fi
+}
+
 run_backend_springboot() {
     setup_env_vars
     
     if [ "$ENV_MODE" = "local" ]; then
-        echo -e "${YELLOW}Releasing port 6565 if in use...${NC}"
-        lsof -t -i:6565 | xargs -r kill -9 >/dev/null 2>&1
+        free_port 6565
         
         echo -e "${YELLOW}Ensuring local database container is running...${NC}"
         if ! docker ps --format '{{.Names}}' | grep -q "^procureiq-alloydb-local$"; then
@@ -133,8 +148,7 @@ run_backend_dotnet() {
     setup_env_vars
     
     if [ "$ENV_MODE" = "local" ]; then
-        echo -e "${YELLOW}Releasing port 5000 if in use...${NC}"
-        lsof -t -i:5000 | xargs -r kill -9 >/dev/null 2>&1
+        free_port 5000
     fi
     
     setup_local_database_schemas
@@ -154,8 +168,7 @@ run_backend_python() {
     setup_env_vars
     
     if [ "$ENV_MODE" = "local" ]; then
-        echo -e "${YELLOW}Releasing port 8000 if in use...${NC}"
-        lsof -t -i:8000 | xargs -r kill -9 >/dev/null 2>&1
+        free_port 8000
         
         echo -e "${YELLOW}Recreating and restarting local database container...${NC}"
         docker compose -f "$PROJECT_ROOT/docker-compose.yml" up -d alloydb-omni >/dev/null 2>&1
@@ -181,8 +194,7 @@ run_frontend() {
     setup_env_vars
     
     if [ "$ENV_MODE" = "local" ]; then
-        echo -e "${YELLOW}Releasing port 8990 if in use...${NC}"
-        lsof -t -i:8990 | xargs -r kill -9 >/dev/null 2>&1
+        free_port 8990
     fi
     
     setup_local_database_schemas
@@ -250,8 +262,7 @@ run_mfe() {
     esac
     
     if [ "$ENV_MODE" = "local" ]; then
-        echo -e "${YELLOW}Releasing port ${port} if in use...${NC}"
-        lsof -t -i:${port} | xargs -r kill -9 >/dev/null 2>&1
+        free_port "$port"
     fi
     echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
