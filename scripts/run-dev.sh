@@ -282,7 +282,11 @@ wait_for_port() {
             return 1
         fi
     done
-    # Extra 2s buffer for first-compile response to be ready after port opens
+    # Extra 2s buffer and pre-warm request so Next.js compiles page before host app proxies
+    local path_name="${name#mfe-}"
+    if [ "$path_name" != "$name" ]; then
+        curl -s -m 15 "http://localhost:${port}/${path_name}" >/dev/null 2>&1 || true
+    fi
     sleep 2
     echo -e "${GREEN}$name is ready on port $port${NC}"
 }

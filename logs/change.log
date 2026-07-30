@@ -1,3 +1,15 @@
+[2026-07-30T22:37:00+05:30] Fixed mfe-auth 500 (broken @shared imports) + startup race condition causing ECONNRESET
+└── File: packages/node/procureiq-nextjs/mfe-auth/features/auth/ + scripts/run-dev.sh
+    ├── Choice: Use @shared webpack alias (centralized, per policy rule) over relative paths; start MFEs before host
+    └── Changes:
+        ├── mfe-auth/features/auth/services/tracing-service.ts -> ../../../shared/src/lib/tracing -> @shared/lib/tracing
+        ├── mfe-auth/features/auth/components/api-key-card.tsx -> ../../../shared/src -> @shared/index
+        ├── mfe-auth/features/auth/components/user-account-list.tsx -> @shared/index
+        ├── mfe-auth/features/auth/components/security-notice.tsx -> @shared/index
+        ├── mfe-auth/features/auth/components/shared/auth-form-wrapper.tsx -> @shared/index
+        ├── scripts/run-dev.sh -> added wait_for_port(); host starts AFTER all 8 MFEs are ready
+        └── affected: mfe-auth page (was 500), all MFEs (no more ECONNRESET on first load)
+
 [2026-07-30T22:12:00+05:30] Fixed MFE proxy ECONNRESET — all rewrite destinations pointed to wrong paths
 └── File: packages/node/procureiq-nextjs/next.config.js
     ├── Choice: Multi-zone Next.js rewrites must proxy to MFE root '/', not '/mfe-name'
