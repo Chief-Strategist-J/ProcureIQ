@@ -269,15 +269,21 @@ run_mfe() {
 
 run_all_mfes() {
     setup_env_vars
-    echo -e "${YELLOW}Starting all Micro Frontends concurrently...${NC}"
+    echo -e "${YELLOW}Cleaning up any existing ports upfront...${NC}"
     
     local mfes=("procureiq-nextjs:8990" "mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
+    
+    for item in "${mfes[@]}"; do
+        local port="${item##*:}"
+        free_port "$port"
+    done
+
+    echo -e "${YELLOW}Starting all Micro Frontends concurrently...${NC}"
     
     for item in "${mfes[@]}"; do
         local name="${item%%:*}"
         local port="${item##*:}"
         if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
-            free_port "$port"
             echo -e "${BLUE}Launching $name on port $port...${NC}"
             (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$name" -p "$port") &
         fi
