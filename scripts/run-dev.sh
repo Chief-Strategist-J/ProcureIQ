@@ -93,7 +93,8 @@ setup_local_database_schemas() {
 free_port() {
     local target_port="$1"
     if [ -n "$target_port" ]; then
-        echo -e "${YELLOW}Releasing port ${target_port} if in use...${NC}"
+        echo -e "${YELLOW}Force releasing port ${target_port}...${NC}"
+        fuser -k -9 -n tcp "${target_port}" >/dev/null 2>&1 || true
         fuser -k -9 "${target_port}/tcp" >/dev/null 2>&1 || true
         lsof -t -i:"${target_port}" | xargs -r kill -9 >/dev/null 2>&1 || true
         if command -v ss &>/dev/null; then
@@ -192,10 +193,7 @@ run_backend_python() {
 
 run_frontend() {
     setup_env_vars
-    
-    if [ "$ENV_MODE" = "local" ]; then
-        free_port 8990
-    fi
+    free_port 8990
     
     setup_local_database_schemas
     run_db_backup
