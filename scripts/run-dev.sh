@@ -277,6 +277,7 @@ run_all_mfes() {
         local name="${item%%:*}"
         local port="${item##*:}"
         if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
+            free_port "$port"
             echo -e "${BLUE}Launching $name on port $port...${NC}"
             (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$name" -p "$port") &
         fi
