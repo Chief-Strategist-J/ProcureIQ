@@ -179,6 +179,12 @@ run_backend_python() {
 
 run_frontend() {
     setup_env_vars
+    
+    if [ "$ENV_MODE" = "local" ]; then
+        echo -e "${YELLOW}Releasing port 8990 if in use...${NC}"
+        lsof -t -i:8990 | xargs -r kill -9 >/dev/null 2>&1
+    fi
+    
     setup_local_database_schemas
     run_db_backup
     echo -e "${YELLOW}Starting Next.js Frontend...${NC}"
@@ -242,6 +248,11 @@ run_mfe() {
         mfe-github) port=8997 ;;
         mfe-jobs) port=8998 ;;
     esac
+    
+    if [ "$ENV_MODE" = "local" ]; then
+        echo -e "${YELLOW}Releasing port ${port} if in use...${NC}"
+        lsof -t -i:${port} | xargs -r kill -9 >/dev/null 2>&1
+    fi
     echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
     npx next dev "$mfe_name" -p "$port"
