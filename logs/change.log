@@ -1,0 +1,9 @@
+[2026-07-30T16:51:00+05:30] Added OpenTelemetry Distributed Tracing to Navigation
+└── File: packages/node/procureiq-nextjs/shared/src/lib/tracing.ts
+    ├── Choice: Hexagonal/Adapter Pattern for centralized trace logging
+    └── Changes:
+        ├── shared/src/lib/tracing.ts -> added traceNavigation and generateTraceId with OpenTelemetry event attributes
+        ├── shared/src/components/ui/header.tsx -> attached traceNavigation to all navigation clicks
+        ├── shared/src/lib/tracing.test.ts -> unit tests for tracing function
+        ├── tla/NavigationTracing.tla -> TLA+ formal specification
+        └── flow/navigation_flow.yml -> OpenTelemetry navigation flow specification

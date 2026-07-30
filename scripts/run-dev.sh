@@ -278,7 +278,8 @@ run_all_mfes() {
         free_port "$port"
     done
 
-    echo -e "${YELLOW}Starting all Micro Frontends concurrently...${NC}"
+    echo -e "${YELLOW}Starting all Micro Frontends concurrently with Node memory & compilation optimizations...${NC}"
+    export NODE_OPTIONS="--max-old-space-size=4096"
     
     for item in "${mfes[@]}"; do
         local name="${item%%:*}"
@@ -300,7 +301,7 @@ show_help() {
     echo "  dotnet          - Run .NET backend (Port 5000)"
     echo ""
     echo "Frontend & Micro Frontend (MFE) Commands:"
-    echo "  frontend        - Run main Next.js frontend (Port 8990)"
+    echo "  all-mfes        - Run main frontend and all MFEs concurrently (Ports 8990-8998)"
     echo "  mfe-crypto      - Run MFE Crypto (Port 8991)"
     echo "  mfe-auth        - Run MFE Auth (Port 8992)"
     echo "  mfe-notifications - Run MFE Notifications (Port 8993)"
@@ -309,7 +310,6 @@ show_help() {
     echo "  mfe-fieldservice - Run MFE Field Service (Port 8996)"
     echo "  mfe-github      - Run MFE GitHub (Port 8997)"
     echo "  mfe-jobs        - Run MFE Jobs (Port 8998)"
-    echo "  all-mfes        - Run main frontend and all MFEs concurrently"
     echo ""
     echo "Database Commands:"
     echo "  backup          - Backup local database"
@@ -327,14 +327,11 @@ case "$1" in
     dotnet)
         run_backend_dotnet
         ;;
-    frontend)
-        run_frontend
+    frontend|all-mfes)
+        run_all_mfes
         ;;
     mfe-crypto|mfe-auth|mfe-notifications|mfe-email|mfe-campaigns|mfe-fieldservice|mfe-github|mfe-jobs)
         run_mfe "$1"
-        ;;
-    all-mfes)
-        run_all_mfes
         ;;
     backup)
         run_db_backup

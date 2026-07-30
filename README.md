@@ -53,9 +53,11 @@ In the root [.env](file:///home/btpl-lap-22/live/ProcureIQ/.env) file, change th
 ./scripts/run-dev.sh python
 ```
 
-#### 4. Frontend (Next.js)
+#### 4. Frontend (Next.js & All Micro Frontends)
 ```bash
 ./scripts/run-dev.sh frontend
+# OR
+./scripts/run-dev.sh all-mfes
 ```
 
 #### 5. Local Database Backup

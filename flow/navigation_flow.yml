@@ -1,0 +1,21 @@
+version: "1.0"
+name: navigation_telemetry_flow
+description: OpenTelemetry distributed tracing flow across Micro Frontend zones and Shell navigation.
+
+steps:
+  - id: user_click
+    action: User clicks on navigation route item in Header or MFE container
+    tracing:
+      event: navigation.click
+      generate_span: true
+
+  - id: create_opentelemetry_span
+    action: traceNavigation helper extracts target route and generates traceId and spanId
+    attributes:
+      http.target: ${targetPath}
+      http.route: ${targetPath}
+      navigation.source: ${currentPath}
+      service.name: procureiq-mfe-shell
+
+  - id: dispatch_custom_event
+    action: Emits window CustomEvent 'procureiq:trace' for analytics and distributed tracing collectors
