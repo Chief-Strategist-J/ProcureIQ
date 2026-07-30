@@ -119,7 +119,7 @@ infra/
 │   │   ├── collector-config.yaml
 │   │   └── exporters/
 │   │       ├── prometheus-exporter.yaml
-│   │       └── jaeger-exporter.yaml
+│   │       └── tempo-exporter.yaml
 │   ├── prometheus/
 │   │   ├── rules/
 │   │   │   ├── network-alerts.yaml

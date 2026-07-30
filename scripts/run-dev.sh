@@ -99,7 +99,7 @@ run_backend_springboot() {
         
         echo -e "${YELLOW}Ensuring local database container is running...${NC}"
         if ! docker ps --format '{{.Names}}' | grep -q "^procureiq-alloydb-local$"; then
-            docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" up -d >/dev/null 2>&1
+            docker compose -f "$PROJECT_ROOT/docker-compose.yml" up -d alloydb-omni >/dev/null 2>&1
             sleep 3
         fi
     fi
@@ -129,6 +129,27 @@ run_backend_springboot() {
     ./mvnw spring-boot:run
 }
 
+run_backend_dotnet() {
+    setup_env_vars
+    
+    if [ "$ENV_MODE" = "local" ]; then
+        echo -e "${YELLOW}Releasing port 5000 if in use...${NC}"
+        lsof -t -i:5000 | xargs -r kill -9 >/dev/null 2>&1
+    fi
+    
+    setup_local_database_schemas
+    run_db_backup
+    echo -e "${YELLOW}Starting .NET (dotnet) Backend...${NC}"
+    
+    if [ -d "$PROJECT_ROOT/packages/dotnet" ]; then
+        cd "$PROJECT_ROOT/packages/dotnet"
+        dotnet run
+    else
+        echo -e "${RED}Error: .NET backend package directory (packages/dotnet) not found!${NC}"
+        exit 1
+    fi
+}
+
 run_backend_python() {
     setup_env_vars
     
@@ -137,9 +158,8 @@ run_backend_python() {
         lsof -t -i:8000 | xargs -r kill -9 >/dev/null 2>&1
         
         echo -e "${YELLOW}Recreating and restarting local database container...${NC}"
-        docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" down >/dev/null 2>&1
-        docker compose -f "$PROJECT_ROOT/deploy/alloydb/local/docker-compose.yml" up -d >/dev/null 2>&1
-        sleep 5
+        docker compose -f "$PROJECT_ROOT/docker-compose.yml" up -d alloydb-omni >/dev/null 2>&1
+        sleep 3
         
         echo -e "${YELLOW}Dropping and recreating database schemas...${NC}"
         docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;" >/dev/null 2>&1
@@ -250,6 +270,7 @@ show_help() {
     echo "Backend Commands:"
     echo "  springboot      - Run Spring Boot Java backend (Port 6565)"
     echo "  python          - Run FastAPI Python backend (Port 8000)"
+    echo "  dotnet          - Run .NET backend (Port 5000)"
     echo ""
     echo "Frontend & Micro Frontend (MFE) Commands:"
     echo "  frontend        - Run main Next.js frontend (Port 8990)"
@@ -275,6 +296,9 @@ case "$1" in
         ;;
     python)
         run_backend_python
+        ;;
+    dotnet)
+        run_backend_dotnet
         ;;
     frontend)
         run_frontend

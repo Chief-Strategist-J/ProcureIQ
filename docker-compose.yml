@@ -15,13 +15,31 @@ services:
       - ./deploy/alloydb/local/initdb.d:/docker-entrypoint-initdb.d
     restart: always
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.57
-    container_name: procureiq-jaeger
+  tempo:
+    image: grafana/tempo:latest
+    container_name: procureiq-tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./deploy/tempo/tempo.yaml:/etc/tempo.yaml
     ports:
-      - "16686:16686" # Web UI
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
+      - "3200:3200" # Tempo HTTP
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: procureiq-grafana
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3001:3000" # Grafana UI on port 3001
+    depends_on:
+      - tempo
     restart: always
 
   springboot-app:
@@ -35,12 +53,12 @@ services:
       - SPRING_DATASOURCE_PASSWORD=postgres
       - OTEL_SERVICE_NAME=springboot-app
       - OTEL_TRACES_EXPORTER=otlp
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
     depends_on:
       - alloydb-omni
-      - jaeger
+      - tempo
     restart: always
 
   python-app:
@@ -50,10 +68,10 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces
     depends_on:
       - alloydb-omni
-      - jaeger
+      - tempo
     restart: always
 
   nextjs-app:
@@ -63,10 +81,10 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces
     depends_on:
       - alloydb-omni
-      - jaeger
+      - tempo
     restart: always
 
   webrtc-server:
