@@ -195,9 +195,7 @@ run_frontend() {
     setup_env_vars
     free_port 8990
     
-    setup_local_database_schemas
-    run_db_backup
-    echo -e "${YELLOW}Starting Next.js Frontend...${NC}"
+    echo -e "${YELLOW}Starting Next.js Frontend (connected to running backend)...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
     
     cat << EOF > .env.local
@@ -264,35 +262,52 @@ run_mfe() {
     fi
     echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
+    cat << EOF > .env.local
+NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
+NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
+EOF
     npx next dev "$mfe_name" -p "$port"
 }
 
 wait_for_port() {
-    local host="localhost"
+    local host="127.0.0.1"
     local port="$1"
     local name="$2"
+    local path_name="${name#mfe-}"
     local timeout=120
     local elapsed=0
+    
     echo -e "${YELLOW}Waiting for $name (port $port) to be ready...${NC}"
-    while ! nc -z "$host" "$port" 2>/dev/null; do
+    
+    while true; do
+        local status_code
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" "http://${host}:${port}/${path_name}" 2>/dev/null || echo "000")
+        if [ "$status_code" = "200" ] || [ "$status_code" = "304" ] || [ "$status_code" = "404" ]; then
+            break
+        fi
         sleep 2
         elapsed=$((elapsed + 2))
         if [ "$elapsed" -ge "$timeout" ]; then
-            echo -e "${RED}Timeout: $name on port $port did not become ready in ${timeout}s${NC}"
+            echo -e "${RED}Timeout: $name on port $port did not respond to HTTP in ${timeout}s${NC}"
             return 1
         fi
     done
-    # Extra 2s buffer and pre-warm request so Next.js compiles page before host app proxies
-    local path_name="${name#mfe-}"
-    if [ "$path_name" != "$name" ]; then
-        curl -s -m 15 "http://localhost:${port}/${path_name}" >/dev/null 2>&1 || true
-    fi
-    sleep 2
-    echo -e "${GREEN}$name is ready on port $port${NC}"
+    
+    echo -e "${GREEN}$name is ready on port $port (HTTP $status_code)${NC}"
 }
 
 run_all_mfes() {
     setup_env_vars
+    
+    echo -e "${YELLOW}Configuring frontend environment for backend integration...${NC}"
+    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
+    cat << EOF > .env.local
+NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
+NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
+EOF
+
     echo -e "${YELLOW}Cleaning up any existing ports upfront...${NC}"
     
     local mfes=("mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
@@ -302,6 +317,8 @@ run_all_mfes() {
         local port="${item##*:}"
         free_port "$port"
     done
+
+    trap 'echo -e "\n${YELLOW}Stopping all frontend micro-frontend processes...${NC}"; kill $(jobs -p) 2>/dev/null || true' INT TERM EXIT
 
     echo -e "${YELLOW}Starting all Micro Frontends concurrently with Node memory & compilation optimizations...${NC}"
     export NODE_OPTIONS="--max-old-space-size=4096"
@@ -332,6 +349,39 @@ run_all_mfes() {
     wait
 }
 
+run_prod_mfes() {
+    setup_env_vars
+    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
+    cat << EOF > .env.local
+NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
+NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
+EOF
+
+    local mfes=("mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
+    local host="procureiq-nextjs:8990"
+
+    for item in "${mfes[@]}" "$host"; do
+        local port="${item##*:}"
+        free_port "$port"
+    done
+
+    trap 'echo -e "\n${YELLOW}Stopping all production micro-frontend servers...${NC}"; kill $(jobs -p) 2>/dev/null || true' INT TERM EXIT
+
+    echo -e "${YELLOW}Building optimized production bundles for all micro-frontends...${NC}"
+    npm run build:all
+
+    echo -e "${GREEN}Starting instant production servers on ports 8990-8998...${NC}"
+    for item in "${mfes[@]}"; do
+        local name="${item%%:*}"
+        local port="${item##*:}"
+        (npx next start "$name" -p "$port") &
+    done
+
+    (npx next start procureiq-nextjs -p 8990) &
+    wait
+}
+
 show_help() {
     echo "Usage: ./scripts/run-dev.sh [command]"
     echo ""
@@ -341,7 +391,8 @@ show_help() {
     echo "  dotnet          - Run .NET backend (Port 5000)"
     echo ""
     echo "Frontend & Micro Frontend (MFE) Commands:"
-    echo "  all-mfes        - Run main frontend and all MFEs concurrently (Ports 8990-8998)"
+    echo "  prod-all        - Instant production build & server runner (<2s page loads)"
+    echo "  all-mfes        - Run main frontend and all MFEs concurrently in dev mode"
     echo "  mfe-crypto      - Run MFE Crypto (Port 8991)"
     echo "  mfe-auth        - Run MFE Auth (Port 8992)"
     echo "  mfe-notifications - Run MFE Notifications (Port 8993)"
@@ -366,6 +417,9 @@ case "$1" in
         ;;
     dotnet)
         run_backend_dotnet
+        ;;
+    prod-all)
+        run_prod_mfes
         ;;
     frontend|all-mfes)
         run_all_mfes
