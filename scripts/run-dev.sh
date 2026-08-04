@@ -191,22 +191,6 @@ run_backend_python() {
     uvicorn src.infra.database:app --reload --port 8000 || uvicorn src.api.main:app --reload --port 8000 || uvicorn app.main:app --reload --port 8000
 }
 
-run_frontend() {
-    setup_env_vars
-    free_port 8990
-    
-    echo -e "${YELLOW}Starting Next.js Frontend (connected to running backend)...${NC}"
-    cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
-    
-    cat << EOF > .env.local
-NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
-NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
-EOF
-    
-    npm run dev
-}
-
 run_db_backup() {
     setup_env_vars
     if [ "$ENV_MODE" = "local" ]; then
@@ -421,7 +405,7 @@ case "$1" in
     prod-all)
         run_prod_mfes
         ;;
-    frontend|all-mfes)
+    all-mfes)
         run_all_mfes
         ;;
     mfe-crypto|mfe-auth|mfe-notifications|mfe-email|mfe-campaigns|mfe-fieldservice|mfe-github|mfe-jobs)
