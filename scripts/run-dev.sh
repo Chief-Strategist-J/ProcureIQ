@@ -123,7 +123,6 @@ run_backend_springboot() {
     setup_local_database_schemas
     run_db_backup
     
-    # Check if database tables already exist
     local table_exists
     if [ "$ENV_MODE" = "local" ]; then
         table_exists=$(docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -tAc "SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'channel_deliveries');" 2>/dev/null || echo "false")
@@ -225,12 +224,12 @@ run_db_restore() {
     fi
 }
 
-run_mfe() {
-    local mfe_name="$1"
+run_frontend() {
+    local target="$1"
     setup_env_vars
-    local port=8990
-    case "$mfe_name" in
-        procureiq-nextjs) port=8990 ;;
+    local port=3000
+    case "$target" in
+        procureiq-nextjs|nextjs|frontend|next) port=3000 ;;
         mfe-crypto) port=8991 ;;
         mfe-auth) port=8992 ;;
         mfe-notifications) port=8993 ;;
@@ -244,41 +243,18 @@ run_mfe() {
     if [ "$ENV_MODE" = "local" ]; then
         free_port "$port"
     fi
-    echo -e "${YELLOW}Starting Micro Frontend ${mfe_name} on port ${port}...${NC}"
+    echo -e "${YELLOW}Starting Next.js Frontend (${target}) on port ${port}...${NC}"
     cd "$PROJECT_ROOT/packages/node/procureiq-nextjs"
     cat << EOF > .env.local
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
 NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
 EOF
-    npx next dev "$mfe_name" -p "$port"
-}
-
-wait_for_port() {
-    local host="127.0.0.1"
-    local port="$1"
-    local name="$2"
-    local path_name="${name#mfe-}"
-    local timeout=120
-    local elapsed=0
-    
-    echo -e "${YELLOW}Waiting for $name (port $port) to be ready...${NC}"
-    
-    while true; do
-        local status_code
-        status_code=$(curl -s -o /dev/null -w "%{http_code}" "http://${host}:${port}/${path_name}" 2>/dev/null || echo "000")
-        if [ "$status_code" = "200" ] || [ "$status_code" = "304" ] || [ "$status_code" = "404" ]; then
-            break
-        fi
-        sleep 2
-        elapsed=$((elapsed + 2))
-        if [ "$elapsed" -ge "$timeout" ]; then
-            echo -e "${RED}Timeout: $name on port $port did not respond to HTTP in ${timeout}s${NC}"
-            return 1
-        fi
-    done
-    
-    echo -e "${GREEN}$name is ready on port $port (HTTP $status_code)${NC}"
+    if [ -d "$target" ]; then
+        npx next dev "$target" -p "$port"
+    else
+        npx next dev -p "$port"
+    fi
 }
 
 run_all_mfes() {
@@ -292,45 +268,11 @@ NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
 NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
 EOF
 
-    echo -e "${YELLOW}Cleaning up any existing ports upfront...${NC}"
-    
-    local mfes=("mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
-    local host="procureiq-nextjs:8990"
+    echo -e "${YELLOW}Cleaning up port 3000 upfront...${NC}"
+    free_port 3000
 
-    for item in "${mfes[@]}" "$host"; do
-        local port="${item##*:}"
-        free_port "$port"
-    done
-
-    trap 'echo -e "\n${YELLOW}Stopping all frontend micro-frontend processes...${NC}"; kill $(jobs -p) 2>/dev/null || true' INT TERM EXIT
-
-    echo -e "${YELLOW}Starting all Micro Frontends concurrently with Node memory & compilation optimizations...${NC}"
-    export NODE_OPTIONS="--max-old-space-size=4096"
-
-    # Step 1: Start all MFEs in background (excluding host)
-    for item in "${mfes[@]}"; do
-        local name="${item%%:*}"
-        local port="${item##*:}"
-        if [ -d "$PROJECT_ROOT/packages/node/procureiq-nextjs/$name" ]; then
-            echo -e "${BLUE}Launching $name on port $port...${NC}"
-            (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$name" -p "$port") &
-        fi
-    done
-
-    # Step 2: Wait for all MFEs to be ready before starting host
-    for item in "${mfes[@]}"; do
-        local name="${item%%:*}"
-        local port="${item##*:}"
-        wait_for_port "$port" "$name" || true
-    done
-
-    # Step 3: Start host app last so it never proxies to a not-yet-ready MFE
-    local host_name="${host%%:*}"
-    local host_port="${host##*:}"
-    echo -e "${GREEN}All MFEs ready. Starting host app $host_name on port $host_port...${NC}"
-    (cd "$PROJECT_ROOT/packages/node/procureiq-nextjs" && npx next dev "$host_name" -p "$host_port") &
-
-    wait
+    echo -e "${GREEN}Starting Next.js frontend dev server on port 3000...${NC}"
+    npx next dev -p 3000
 }
 
 run_prod_mfes() {
@@ -342,28 +284,13 @@ NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
 NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
 EOF
 
-    local mfes=("mfe-crypto:8991" "mfe-auth:8992" "mfe-notifications:8993" "mfe-email:8994" "mfe-campaigns:8995" "mfe-fieldservice:8996" "mfe-github:8997" "mfe-jobs:8998")
-    local host="procureiq-nextjs:8990"
+    free_port 3000
 
-    for item in "${mfes[@]}" "$host"; do
-        local port="${item##*:}"
-        free_port "$port"
-    done
+    echo -e "${YELLOW}Building optimized production bundle...${NC}"
+    npm run build
 
-    trap 'echo -e "\n${YELLOW}Stopping all production micro-frontend servers...${NC}"; kill $(jobs -p) 2>/dev/null || true' INT TERM EXIT
-
-    echo -e "${YELLOW}Building optimized production bundles for all micro-frontends...${NC}"
-    npm run build:all
-
-    echo -e "${GREEN}Starting instant production servers on ports 8990-8998...${NC}"
-    for item in "${mfes[@]}"; do
-        local name="${item%%:*}"
-        local port="${item##*:}"
-        (npx next start "$name" -p "$port") &
-    done
-
-    (npx next start procureiq-nextjs -p 8990) &
-    wait
+    echo -e "${GREEN}Starting production server on port 3000...${NC}"
+    npx next start -p 3000
 }
 
 show_help() {
@@ -374,17 +301,12 @@ show_help() {
     echo "  python          - Run FastAPI Python backend (Port 8000)"
     echo "  dotnet          - Run .NET backend (Port 5000)"
     echo ""
-    echo "Frontend & Micro Frontend (MFE) Commands:"
-    echo "  prod-all        - Instant production build & server runner (<2s page loads)"
-    echo "  all-mfes        - Run main frontend and all MFEs concurrently in dev mode"
-    echo "  mfe-crypto      - Run MFE Crypto (Port 8991)"
-    echo "  mfe-auth        - Run MFE Auth (Port 8992)"
-    echo "  mfe-notifications - Run MFE Notifications (Port 8993)"
-    echo "  mfe-email       - Run MFE Email (Port 8994)"
-    echo "  mfe-campaigns   - Run MFE Campaigns (Port 8995)"
-    echo "  mfe-fieldservice - Run MFE Field Service (Port 8996)"
-    echo "  mfe-github      - Run MFE GitHub (Port 8997)"
-    echo "  mfe-jobs        - Run MFE Jobs (Port 8998)"
+    echo "Frontend Commands:"
+    echo "  frontend        - Run Next.js frontend dev server (Port 3000)"
+    echo "  nextjs          - Run Next.js frontend dev server (Port 3000)"
+    echo "  prod-all        - Build & run production frontend server (Port 3000)"
+    echo "  mfe-auth        - Run Auth frontend on port 8992"
+    echo "  all-mfes        - Run Next.js frontend dev server"
     echo ""
     echo "Database Commands:"
     echo "  backup          - Backup local database"
@@ -408,8 +330,8 @@ case "$1" in
     all-mfes)
         run_all_mfes
         ;;
-    mfe-crypto|mfe-auth|mfe-notifications|mfe-email|mfe-campaigns|mfe-fieldservice|mfe-github|mfe-jobs)
-        run_mfe "$1"
+    frontend|nextjs|next|procureiq-nextjs|mfe-crypto|mfe-auth|mfe-notifications|mfe-email|mfe-campaigns|mfe-fieldservice|mfe-github|mfe-jobs)
+        run_frontend "$1"
         ;;
     backup)
         run_db_backup
@@ -421,4 +343,3 @@ case "$1" in
         show_help
         ;;
 esac
-
