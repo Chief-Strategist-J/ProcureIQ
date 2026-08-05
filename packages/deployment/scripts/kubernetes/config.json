@@ -1,0 +1,32 @@
+{
+  "configmap_name": "procureiq-config",
+  "secret_name": "procureiq-secrets",
+  "namespace": "default",
+  "vault_secret_path": "secret/data/procureiq/kubernetes",
+  "configmap_keys": [
+    "ALLOYDB_HOST",
+    "ALLOYDB_PORT",
+    "ALLOYDB_DB",
+    "SPRINGBOOT_DATASOURCE_URL",
+    "SPRINGBOOT_DATASOURCE_USERNAME",
+    "SPRINGBOOT_OTEL_SERVICE_NAME",
+    "SPRINGBOOT_OTEL_TRACES_EXPORTER",
+    "SPRINGBOOT_OTEL_EXPORTER_ENDPOINT",
+    "SPRINGBOOT_OTEL_METRICS_EXPORTER",
+    "SPRINGBOOT_OTEL_LOGS_EXPORTER",
+    "NEXTJS_API_URL",
+    "NEXTJS_DATABASE_URL",
+    "NEXTJS_OTEL_ENDPOINT",
+    "TEMPO_GRPC_ENDPOINT",
+    "TEMPO_HTTP_ENDPOINT",
+    "SPRINGBOOT_REPLICAS",
+    "NEXTJS_REPLICAS",
+    "HPA_MIN_REPLICAS",
+    "HPA_MAX_REPLICAS",
+    "HPA_CPU_UTILIZATION"
+  ],
+  "secret_keys": [
+    "POSTGRES_PASSWORD",
+    "SPRINGBOOT_DATASOURCE_PASSWORD"
+  ]
+}
