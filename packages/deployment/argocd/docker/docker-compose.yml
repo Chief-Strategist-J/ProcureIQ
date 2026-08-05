@@ -1,0 +1,13 @@
+services:
+  argocd-proxy:
+    image: bitnami/kubectl:1.36
+    container_name: procureiq-argocd-proxy
+    network_mode: host
+    volumes:
+      - ~/.kube:/root/.kube:ro
+    command:
+      - proxy
+      - "--port=8001"
+      - "--address=0.0.0.0"
+      - "--accept-hosts=.*"
+    restart: unless-stopped

@@ -1,0 +1,14 @@
+{
+  "argocd_url": "https://localhost:8443",
+  "argocd_username": "admin",
+  "cluster_name": "procureiq-local",
+  "namespace": "argocd",
+  "app_name": "procureiq",
+  "endpoints": {
+    "session": "/api/v1/session",
+    "app_sync": "/api/v1/applications/{app_name}/sync",
+    "app_status": "/api/v1/applications/{app_name}",
+    "app_resources": "/api/v1/applications/{app_name}/resource-tree",
+    "health": "/healthz"
+  }
+}
