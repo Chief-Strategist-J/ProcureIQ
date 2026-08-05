@@ -1,0 +1,102 @@
+services:
+  alloydb-omni:
+    image: google/alloydbomni:15
+    container_name: procureiq-alloydb-local
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=procureiq
+    volumes:
+      - alloydb_data:/var/lib/postgresql/data
+    restart: always
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: procureiq-tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: procureiq-grafana
+    volumes:
+      - ./grafana-datasource.yaml:/etc/grafana/provisioning/datasources/tempo.yaml
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    ports:
+      - "3001:3000"
+    depends_on:
+      - tempo
+    restart: always
+
+  springboot-app:
+    build:
+      context: ../../java/procureiq-springboot
+      dockerfile: ../../deployment/docker/Dockerfile.springboot
+    container_name: procureiq-springboot-app
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://alloydb-omni:5432/procureiq
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+      - OTEL_SERVICE_NAME=springboot-app
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+    depends_on:
+      - alloydb-omni
+      - tempo
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.springboot.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.springboot.loadbalancer.server.port=8080"
+
+  nextjs-app:
+    build:
+      context: ../../node/procureiq-nextjs
+      dockerfile: ../../deployment/docker/Dockerfile.nextjs
+    container_name: procureiq-nextjs-app
+    environment:
+      - NEXT_PUBLIC_API_URL=http://springboot-app:8080/api/v1
+      - DATABASE_URL=postgresql://postgres:postgres@alloydb-omni:5432/procureiq
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318/v1/traces
+    depends_on:
+      - alloydb-omni
+      - tempo
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nextjs.rule=PathPrefix(`/`)"
+      - "traefik.http.services.nextjs.loadbalancer.server.port=3000"
+
+  traefik:
+    image: traefik:v2.10
+    container_name: procureiq-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--providers.file.directory=/etc/traefik"
+      - "--providers.file.watch=true"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../traefik:/etc/traefik
+    restart: always
+
+volumes:
+  alloydb_data:
+    driver: local
