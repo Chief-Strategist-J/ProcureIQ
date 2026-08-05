@@ -29,17 +29,45 @@ spec:
               memory: 256Mi
           env:
             - name: SPRING_DATASOURCE_URL
-              value: jdbc:postgresql://alloydb-omni-service:5432/procureiq
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_DATASOURCE_URL
             - name: SPRING_DATASOURCE_USERNAME
-              value: postgres
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_DATASOURCE_USERNAME
             - name: SPRING_DATASOURCE_PASSWORD
-              value: postgres
+              valueFrom:
+                secretKeyRef:
+                  name: procureiq-secrets
+                  key: SPRINGBOOT_DATASOURCE_PASSWORD
             - name: OTEL_SERVICE_NAME
-              value: springboot-app
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_OTEL_SERVICE_NAME
             - name: OTEL_TRACES_EXPORTER
-              value: otlp
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_OTEL_TRACES_EXPORTER
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: http://tempo-service:4317
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_OTEL_EXPORTER_ENDPOINT
+            - name: OTEL_METRICS_EXPORTER
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_OTEL_METRICS_EXPORTER
+            - name: OTEL_LOGS_EXPORTER
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: SPRINGBOOT_OTEL_LOGS_EXPORTER
 ---
 apiVersion: v1
 kind: Service

@@ -29,11 +29,20 @@ spec:
               memory: 256Mi
           env:
             - name: NEXT_PUBLIC_API_URL
-              value: http://springboot-app-service:8080/api/v1
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: NEXTJS_API_URL
             - name: DATABASE_URL
-              value: postgresql://postgres:postgres@alloydb-omni-service:5432/procureiq
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: NEXTJS_DATABASE_URL
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
-              value: http://tempo-service:4318/v1/traces
+              valueFrom:
+                configMapKeyRef:
+                  name: procureiq-config
+                  key: NEXTJS_OTEL_ENDPOINT
 ---
 apiVersion: v1
 kind: Service

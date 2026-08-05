@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: procureiq-config
+  namespace: default
+data:
+  ALLOYDB_HOST: alloydb-omni-service
+  ALLOYDB_PORT: "5432"
+  ALLOYDB_DB: procureiq
+
+  SPRINGBOOT_DATASOURCE_URL: jdbc:postgresql://alloydb-omni-service:5432/procureiq
+  SPRINGBOOT_DATASOURCE_USERNAME: postgres
+  SPRINGBOOT_OTEL_SERVICE_NAME: springboot-app
+  SPRINGBOOT_OTEL_TRACES_EXPORTER: otlp
+  SPRINGBOOT_OTEL_EXPORTER_ENDPOINT: http://tempo-service:4317
+  SPRINGBOOT_OTEL_METRICS_EXPORTER: none
+  SPRINGBOOT_OTEL_LOGS_EXPORTER: none
+
+  NEXTJS_API_URL: http://springboot-app-service:8080/api/v1
+  NEXTJS_DATABASE_URL: postgresql://postgres:postgres@alloydb-omni-service:5432/procureiq
+  NEXTJS_OTEL_ENDPOINT: http://tempo-service:4318/v1/traces
+
+  TEMPO_GRPC_ENDPOINT: http://tempo-service:4317
+  TEMPO_HTTP_ENDPOINT: http://tempo-service:4318
+
+  SPRINGBOOT_REPLICAS: "2"
+  NEXTJS_REPLICAS: "2"
+  HPA_MIN_REPLICAS: "2"
+  HPA_MAX_REPLICAS: "10"
+  HPA_CPU_UTILIZATION: "75"
