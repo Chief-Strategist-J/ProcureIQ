@@ -1,0 +1,15 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Voice Agent Tests') {
+            steps {
+                dir('packages/voice/packages/python/voice-agent') {
+                    sh 'pip install -r requirements.txt'
+                    sh 'pip install -e .'
+                    sh 'pytest src/features/voice_agent/tests/'
+                }
+            }
+        }
+    }
+}

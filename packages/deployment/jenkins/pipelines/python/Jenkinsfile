@@ -1,0 +1,14 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Python Service Tests') {
+            steps {
+                dir('packages/python/procureiq-python') {
+                    sh 'poetry install'
+                    sh 'poetry run pytest'
+                }
+            }
+        }
+    }
+}

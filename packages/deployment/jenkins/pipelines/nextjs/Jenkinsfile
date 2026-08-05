@@ -1,0 +1,14 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Frontend Tests') {
+            steps {
+                dir('packages/node/procureiq-nextjs') {
+                    sh 'npm install'
+                    sh 'npm run test'
+                }
+            }
+        }
+    }
+}
