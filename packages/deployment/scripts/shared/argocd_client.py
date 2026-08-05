@@ -7,6 +7,7 @@ import http.cookiejar
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter
+from . import config_loader
 
 def init_tracer(service_name):
     provider = TracerProvider()
@@ -23,6 +24,9 @@ def load_config():
             return json.load(f)
     except Exception as e:
         sys.exit(1)
+
+def load_env(key: str) -> str:
+    return config_loader.get(key)
 
 def get_ssl_context():
     ctx = ssl.create_default_context()

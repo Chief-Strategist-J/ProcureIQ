@@ -6,6 +6,7 @@ import urllib.request
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter
+from . import config_loader
 
 JOB_CONFIG_XML_TEMPLATE = """<flow-definition plugin="workflow-job">
   <actions/>
@@ -35,6 +36,9 @@ def load_config():
             return json.load(f)
     except Exception as e:
         sys.exit(1)
+
+def load_env(key: str) -> str:
+    return config_loader.get(key)
 
 def get_opener():
     cookie_jar = http.cookiejar.CookieJar()
