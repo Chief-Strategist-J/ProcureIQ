@@ -1,13 +1,29 @@
+import groovy.json.JsonSlurper
+
+@NonCPS
+def getDirectory(String configText, String key) {
+    return new JsonSlurper().parseText(configText)[key]
+}
+
 pipeline {
-    agent any
+    agent {
+        node {
+            label ''
+            customWorkspace '/workspace'
+        }
+    }
 
     stages {
         stage('Voice Agent Tests') {
             steps {
-                dir('packages/voice/packages/python/voice-agent') {
-                    sh 'pip install -r requirements.txt'
-                    sh 'pip install -e .'
-                    sh 'pytest src/features/voice_agent/tests/'
+                script {
+                    def configText = readFile('packages/deployment/scripts/jenkins/config.json')
+                    def targetDir = getDirectory(configText, 'voice_dir')
+                    dir(targetDir) {
+                        sh 'pip install -r requirements.txt'
+                        sh 'pip install -e .'
+                        sh 'pytest src/features/voice_agent/tests/'
+                    }
                 }
             }
         }

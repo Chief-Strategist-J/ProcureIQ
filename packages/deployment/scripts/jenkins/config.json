@@ -1,0 +1,18 @@
+{
+  "jenkins_url": "http://localhost:8085",
+  "endpoints": {
+    "crumb": "/crumbIssuer/api/json",
+    "create_job": "/createItem?name={job_name}",
+    "job_config": "/job/{job_name}/config.xml",
+    "job_info": "/job/{job_name}/api/json",
+    "trigger_build": "/job/{job_name}/build",
+    "build_info": "/job/{job_name}/{build_number}/api/json",
+    "console_output": "/job/{job_name}/{build_number}/consoleText"
+  },
+  "job_name": "nextjs-pipeline",
+  "pipeline_file": "../../jenkins/pipelines/nextjs/Jenkinsfile",
+  "nextjs_dir": "packages/node/procureiq-nextjs",
+  "springboot_dir": "packages/java/procureiq-springboot",
+  "python_dir": "packages/python/procureiq-python",
+  "voice_dir": "packages/voice/packages/python/voice-agent"
+}
