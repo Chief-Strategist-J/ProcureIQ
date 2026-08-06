@@ -3,11 +3,11 @@ services:
     image: google/alloydbomni:15
     container_name: procureiq-alloydb-local
     ports:
-      - "${ALLOYDB_PORT}:5432"
+      - "${ALLOYDB_PORT:-5432}:5432"
     environment:
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-procureiq}
     volumes:
       - alloydb_data:/var/lib/postgresql/data
     restart: always
@@ -15,44 +15,46 @@ services:
   tempo:
     image: grafana/tempo:latest
     container_name: procureiq-tempo
-    command: [ "-config.file=${TEMPO_CONFIG_FILE}" ]
+    command: [ "-config.file=${TEMPO_CONFIG_FILE:-/etc/tempo.yaml}" ]
     volumes:
-      - ./tempo.yaml:/etc/tempo.yaml
+      - ${TEMPO_YAML_PATH:-./tempo.yaml}:/etc/tempo.yaml
     ports:
-      - "${TEMPO_QUERY_PORT}:3200"
-      - "${TEMPO_GRPC_PORT}:4317"
-      - "${TEMPO_HTTP_PORT}:4318"
+      - "${TEMPO_QUERY_PORT:-3200}:3200"
+      - "${TEMPO_GRPC_PORT:-4317}:4317"
+      - "${TEMPO_HTTP_PORT:-4318}:4318"
     restart: always
 
   grafana:
     image: grafana/grafana:latest
     container_name: procureiq-grafana
     volumes:
-      - ./grafana-datasource.yaml:/etc/grafana/provisioning/datasources/tempo.yaml
+      - ${GRAFANA_DATASOURCE_PATH:-./grafana-datasource.yaml}:/etc/grafana/provisioning/datasources/tempo.yaml
     environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED}
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE}
-      - GF_AUTH_DISABLE_LOGIN_FORM=${GF_AUTH_DISABLE_LOGIN_FORM}
+      - GF_AUTH_ANONYMOUS_ENABLED=${GF_AUTH_ANONYMOUS_ENABLED:-true}
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=${GF_AUTH_ANONYMOUS_ORG_ROLE:-Admin}
+      - GF_AUTH_DISABLE_LOGIN_FORM=${GF_AUTH_DISABLE_LOGIN_FORM:-true}
     ports:
-      - "${GRAFANA_PORT}:${GRAFANA_INTERNAL_PORT}"
+      - "${GRAFANA_PORT:-3001}:${GRAFANA_INTERNAL_PORT:-3000}"
     depends_on:
       - tempo
     restart: always
 
   springboot-app:
     build:
-      context: ../../java/procureiq-springboot
-      dockerfile: ../../deployment/docker/Dockerfile.springboot
+      context: ${SPRINGBOOT_CONTEXT:-../../java/procureiq-springboot}
+      dockerfile: ${SPRINGBOOT_DOCKERFILE:-../../deployment/docker/Dockerfile.springboot}
     container_name: procureiq-springboot-app
+    ports:
+      - "${SPRINGBOOT_PORT:-8080}:8080"
     environment:
-      - SPRING_DATASOURCE_URL=${SPRINGBOOT_DATASOURCE_URL}
-      - SPRING_DATASOURCE_USERNAME=${SPRINGBOOT_DATASOURCE_USERNAME}
-      - SPRING_DATASOURCE_PASSWORD=${SPRINGBOOT_DATASOURCE_PASSWORD}
-      - OTEL_SERVICE_NAME=${SPRINGBOOT_OTEL_SERVICE_NAME}
-      - OTEL_TRACES_EXPORTER=${SPRINGBOOT_OTEL_TRACES_EXPORTER}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${SPRINGBOOT_OTEL_EXPORTER_ENDPOINT}
-      - OTEL_METRICS_EXPORTER=${SPRINGBOOT_OTEL_METRICS_EXPORTER}
-      - OTEL_LOGS_EXPORTER=${SPRINGBOOT_OTEL_LOGS_EXPORTER}
+      - SPRING_DATASOURCE_URL=${SPRINGBOOT_DATASOURCE_URL:-jdbc:postgresql://alloydb-omni:5432/procureiq}
+      - SPRING_DATASOURCE_USERNAME=${SPRINGBOOT_DATASOURCE_USERNAME:-postgres}
+      - SPRING_DATASOURCE_PASSWORD=${SPRINGBOOT_DATASOURCE_PASSWORD:-postgres}
+      - OTEL_SERVICE_NAME=${SPRINGBOOT_OTEL_SERVICE_NAME:-springboot-app}
+      - OTEL_TRACES_EXPORTER=${SPRINGBOOT_OTEL_TRACES_EXPORTER:-otlp}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${SPRINGBOOT_OTEL_EXPORTER_ENDPOINT:-http://tempo:4317}
+      - OTEL_METRICS_EXPORTER=${SPRINGBOOT_OTEL_METRICS_EXPORTER:-none}
+      - OTEL_LOGS_EXPORTER=${SPRINGBOOT_OTEL_LOGS_EXPORTER:-none}
     depends_on:
       - alloydb-omni
       - tempo
@@ -64,13 +66,15 @@ services:
 
   nextjs-app:
     build:
-      context: ../../node/procureiq-nextjs
-      dockerfile: ../../deployment/docker/Dockerfile.nextjs
+      context: ${NEXTJS_CONTEXT:-../../node/procureiq-nextjs}
+      dockerfile: ${NEXTJS_DOCKERFILE:-../../deployment/docker/Dockerfile.nextjs}
     container_name: procureiq-nextjs-app
+    ports:
+      - "${NEXTJS_PORT:-3000}:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXTJS_API_URL}
-      - DATABASE_URL=${NEXTJS_DATABASE_URL}
-      - OTEL_EXPORTER_OTLP_ENDPOINT=${NEXTJS_OTEL_ENDPOINT}
+      - NEXT_PUBLIC_API_URL=${NEXTJS_API_URL:-http://springboot-app:8080/api/v1}
+      - DATABASE_URL=${NEXTJS_DATABASE_URL:-postgresql://postgres:postgres@alloydb-omni:5432/procureiq}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${NEXTJS_OTEL_ENDPOINT:-http://tempo:4318/v1/traces}
     depends_on:
       - alloydb-omni
       - tempo
@@ -86,15 +90,15 @@ services:
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:${TRAEFIK_WEB_PORT}"
+      - "--entrypoints.web.address=:${TRAEFIK_WEB_PORT:-80}"
       - "--providers.file.directory=/etc/traefik"
       - "--providers.file.watch=true"
     ports:
-      - "${TRAEFIK_WEB_PORT}:80"
-      - "${TRAEFIK_DASHBOARD_PORT}:8080"
+      - "${TRAEFIK_WEB_PORT:-80}:80"
+      - "${TRAEFIK_DASHBOARD_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ../traefik:/etc/traefik
+      - ${TRAEFIK_CONFIG_PATH:-../traefik}:/etc/traefik
     restart: always
 
 volumes:

@@ -1,0 +1,46 @@
+{
+  "version": "1.0.0",
+  "project_name": "ProcureIQ",
+  "paths": {
+    "compose_file": "packages/deployment/docker/docker-compose.yml",
+    "root_compose_file": "docker-compose.yml",
+    "env_file": ".env"
+  },
+  "services": {
+    "alloydb-omni": {
+      "description": "AlloyDB Omni Local Database",
+      "build_required": false,
+      "default_port": 5432,
+      "health_check": "pg_isready"
+    },
+    "tempo": {
+      "description": "Grafana Tempo Tracing Service",
+      "build_required": false,
+      "default_port": 3200
+    },
+    "grafana": {
+      "description": "Grafana Dashboards & Visualization",
+      "build_required": false,
+      "default_port": 3001
+    },
+    "springboot-app": {
+      "description": "Spring Boot Core API Engine",
+      "build_required": true,
+      "default_port": 8080
+    },
+    "nextjs-app": {
+      "description": "Next.js Web Frontend & Portal",
+      "build_required": true,
+      "default_port": 3000
+    },
+    "traefik": {
+      "description": "Traefik Reverse Proxy & Edge Router",
+      "build_required": false,
+      "default_port": 80
+    }
+  },
+  "execution_rules": {
+    "auto_build_services": ["springboot-app", "nextjs-app"],
+    "infrastructure_services": ["alloydb-omni", "tempo", "grafana", "traefik"]
+  }
+}
