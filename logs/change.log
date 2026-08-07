@@ -26,3 +26,15 @@
         ├── shared/src/lib/tracing.test.ts -> unit tests for tracing function
         ├── tla/NavigationTracing.tla -> TLA+ formal specification
         └── flow/navigation_flow.yml -> OpenTelemetry navigation flow specification
+
+[2026-08-07T14:11:00+05:30] Refactored procureiq-nextjs to Next.js Extreme-Scale Architecture
+└── File: packages/node/procureiq-nextjs/
+    ├── Choice: Dynamic modular self-registering feature slices/sagas over static manual configurations
+    └── Changes:
+        ├── tsconfig.json & vitest.config.ts -> added @core alias mapping
+        ├── src/core/ -> created core engine sub-packages (event-bus, rules-engine, workflow-engine, state-machines, feature-flags, store registry, data-driven entity adapters/sagas/decorators/transformers)
+        ├── src/shared/ui/ -> created generic DataForm and DataTable visitor-registry components
+        ├── src/core/governance/ -> created rules-based RBAC permissions check and audit logs publisher
+        ├── src/lib/http-client.ts -> extended HttpClient with PATCH and DELETE methods
+        ├── src/shared/store/ -> refactored root config to dynamically register features
+        └── src/features/auth/ -> refactored auth module sagas and entrypoint index to self-register
