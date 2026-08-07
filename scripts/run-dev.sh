@@ -15,8 +15,35 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 if [ ! -f "$ROOT_ENV_FILE" ]; then
-    echo -e "${RED}Error: Root .env file not found!${NC}"
-    exit 1
+    echo -e "${YELLOW}Root .env file not found! Generating default local .env file...${NC}"
+    cat << 'EOF' > "$ROOT_ENV_FILE"
+PROCUREIQ_ENV=local
+
+# Local Environment Variables
+LOCAL_DB_HOST=localhost
+LOCAL_DB_PORT=5432
+LOCAL_DB_NAME=procureiq
+LOCAL_DB_USER=postgres
+LOCAL_DB_PASS=postgres
+LOCAL_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/procureiq
+
+LOCAL_NEXT_SPRINGBOOT_API=http://localhost:8080/api/v1
+LOCAL_NEXT_PYTHON_API=http://localhost:8000/api/v1
+LOCAL_NEXT_WEBRTC_WS=ws://localhost:8080/webrtc
+
+# Production / Remote Supabase Environment Variables
+PROD_DB_HOST=localhost
+PROD_DB_PORT=5432
+PROD_DB_NAME=procureiq
+PROD_DB_USER=postgres
+PROD_DB_PASS=postgres
+PROD_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/procureiq
+
+PROD_NEXT_SPRINGBOOT_API=http://localhost:8080/api/v1
+PROD_NEXT_PYTHON_API=http://localhost:8000/api/v1
+PROD_NEXT_WEBRTC_WS=ws://localhost:8080/webrtc
+EOF
+    echo -e "${GREEN}Default .env file successfully created at $ROOT_ENV_FILE!${NC}"
 fi
 
 # Load variables
