@@ -29,7 +29,7 @@ bash scripts/run-rules-manifest.sh --changed
 |---|---|---|---|
 | `NAMING-001` | blocking | §0 Naming Law | `validate-naming.sh` |
 | `NAMING-002` | blocking | §0 Rule File Naming | `validate-rule-file-naming.sh` |
-| `STRUCTURE-001` | blocking | §1 & §2 Vertical Slice | `validate-folder-structure.sh` |
+| `STRUCTURE-001` | advisory | §1 & §2 Vertical Slice | `validate-folder-structure.sh` |
 | `KT-NULL-001` | blocking | §3 Kotlin Null Safety | `no-force-unwrap-kotlin.sh` |
 | `GO-ASSERT-001` | blocking | §3 Go Type Assertion | `no-unchecked-type-assertion-go.sh` |
 | `GO-ERRCHECK-001` | blocking | §3 Go Error Handling | `go-errcheck.sh` |

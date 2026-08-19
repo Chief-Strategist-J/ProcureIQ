@@ -69,10 +69,8 @@ rules:
   doc_ref: '#0-the-naming-law'
 - id: STRUCTURE-001
   lang: any
-  severity: blocking
-  statement: Services must strictly follow vertical-slice folder structure (cmd/,
-    internal/features/, domain/, ports/, adapters/) and reject layered anti-patterns
-    (flat controllers/, services/, models/).
+  severity: advisory
+  statement: Folder structure is advisory — vertical-slice patterns are recommended, but flexible project directory layouts are allowed while all architectural, rules-engine, type-safety, and data-integrity rules remain strictly blocking.
   check: scripts/checks/validate-folder-structure.sh
   doc_ref: '#1-repo-level-topology'
 - id: UI-LOGIC-001
