@@ -99,6 +99,9 @@ setup_local_database_schemas() {
             sleep 3
         fi
 
+        # Guarantee database $LOCAL_DB_NAME exists in PostgreSQL
+        docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d postgres -c "CREATE DATABASE $LOCAL_DB_NAME;" >/dev/null 2>&1 || true
+
         local table_exists
         table_exists=$(docker exec -i procureiq-alloydb-local psql -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" -tAc "SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'channel_deliveries');" 2>/dev/null || echo "false")
         
