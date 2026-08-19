@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null | head -n 1)"
 HOOKS_DIR="$REPO_ROOT/.git/hooks"
 
 if [ ! -d "$HOOKS_DIR" ]; then
@@ -21,6 +21,9 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 RUNNER="$REPO_ROOT/agent-kit/scripts/run-rules-manifest.sh"
+if [ ! -f "$RUNNER" ] && [ -f "$REPO_ROOT/../agent-kit/scripts/run-rules-manifest.sh" ]; then
+  RUNNER="$REPO_ROOT/../agent-kit/scripts/run-rules-manifest.sh"
+fi
 
 if [ -f "$RUNNER" ]; then
   echo "==> Running Mechanical Rules Manifest Pre-Commit Gate..."
