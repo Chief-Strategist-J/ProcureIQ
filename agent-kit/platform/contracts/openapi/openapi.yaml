@@ -1,0 +1,82 @@
+openapi: 3.0.3
+info:
+  title: Agentic Structure API Contracts
+  version: 1.0.0
+  description: Canonical contracts enforcing §13 and §14 taxonomy.
+paths:
+  /api/v1/entities:
+    post:
+      summary: Create Entity (Mutating operation requiring Idempotency-Key)
+      operationId: createEntity
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Tenant-ID
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Created
+          headers:
+            ETag:
+              schema:
+                type: string
+        '400':
+          description: Validation Error
+        '409':
+          description: Idempotency Conflict
+  /api/v1/entities/{id}:
+    put:
+      summary: Update Entity (Requires If-Match for optimistic concurrency)
+      operationId: updateEntity
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Tenant-ID
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated
+          headers:
+            ETag:
+              schema:
+                type: string
+        '412':
+          description: Precondition Failed (ETag mismatch)

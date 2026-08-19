@@ -1,0 +1,22 @@
+app:
+  name: "agentic-platform"
+  environment: "base"
+
+tracing:
+  enabled: true
+  errorSampleRate: 1.0
+  defaultSampleRate: 0.1
+
+db:
+  compat:
+    minSupportedSchemaVersion: "1.0.0"
+  pool:
+    maxOpenConns: 25
+    maxIdleConns: 5
+    connMaxLifetimeSeconds: 300
+    statementTimeoutMs: 5000
+
+http:
+  client:
+    timeoutMs: 5000
+    maxRetries: 3

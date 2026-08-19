@@ -1,0 +1,10 @@
+---
+description: Non-negotiable project rules — always active
+alwaysApply: true
+---
+
+Read `/AGENTS.md` in full before making any change, and follow it exactly — it is not optional context, it is the operating contract for this repository.
+
+Also load `/platform/rules-manifest.yaml` and everything under `/platform/adr/` before proposing any structural change.
+
+After any code change, run `bash scripts/run-rules-manifest.sh --changed` and report the actual output. A `blocking` finding means stop, not "note it and continue."

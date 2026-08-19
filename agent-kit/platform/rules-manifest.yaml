@@ -1,0 +1,286 @@
+version: 1
+rules:
+- id: KT-NULL-001
+  lang: kotlin
+  severity: blocking
+  statement: No `!!` operator outside test source sets.
+  check: scripts/checks/no-force-unwrap-kotlin.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: GO-ASSERT-001
+  lang: go
+  severity: blocking
+  statement: "No unchecked type assertion \u2014 every `x.(T)` must use the `, ok`\
+    \ form."
+  check: scripts/checks/no-unchecked-type-assertion-go.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: GO-ERRCHECK-001
+  lang: go
+  severity: blocking
+  statement: Every returned error must be checked, never discarded with `_`.
+  check: scripts/checks/go-errcheck.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: GO-PANIC-001
+  lang: go
+  severity: blocking
+  statement: "No `panic()` in features/ or domain/ \u2014 only platform/middleware\
+    \ may recover."
+  check: scripts/checks/no-panic-in-features-go.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: TS-ANY-001
+  lang: typescript
+  severity: blocking
+  statement: No `any` type outside an explicitly commented, justified escape hatch.
+  check: scripts/checks/no-any-typescript.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: TS-ASSERT-001
+  lang: typescript
+  severity: blocking
+  statement: "No `as T` type assertion on external/unknown data \u2014 use a zod `.parse()`/`.safeParse()`\
+    \ instead."
+  check: scripts/checks/no-unsafe-cast-typescript.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: TS-STRICT-001
+  lang: typescript
+  severity: blocking
+  statement: 'Every tsconfig.json must have strict: true, noUncheckedIndexedAccess:
+    true, and exactOptionalPropertyTypes: true.'
+  check: scripts/checks/validate-tsconfig-strict.sh
+  doc_ref: '#3-brutal-type-safety'
+- id: LOOP-001
+  lang: any
+  severity: blocking
+  statement: "No `for`/`while` loop inside features/, domain/, logic files, or UI\
+    \ components \u2014 use map/filter/fold/reduce/pipe."
+  check: scripts/checks/no-loops-in-features.sh
+  doc_ref: '#5-method-list-cheat-sheet'
+- id: NAMING-001
+  lang: any
+  severity: blocking
+  statement: No literal example nouns (Order, Pricing, User, etc.) copied from architecture
+    docs/templates into structural code.
+  check: scripts/checks/validate-naming.sh
+  doc_ref: '#0-the-naming-law'
+- id: NAMING-002
+  lang: any
+  severity: blocking
+  statement: Rule YAML files must strictly follow the `<feature>.<concern>.rules.yaml`
+    naming pattern.
+  check: scripts/checks/validate-rule-file-naming.sh
+  doc_ref: '#0-the-naming-law'
+- id: STRUCTURE-001
+  lang: any
+  severity: blocking
+  statement: Services must strictly follow vertical-slice folder structure (cmd/,
+    internal/features/, domain/, ports/, adapters/) and reject layered anti-patterns
+    (flat controllers/, services/, models/).
+  check: scripts/checks/validate-folder-structure.sh
+  doc_ref: '#1-repo-level-topology'
+- id: UI-LOGIC-001
+  lang: typescript
+  severity: blocking
+  statement: No business conditional (more than one boolean condition) inside JSX.
+  check: scripts/checks/no-business-logic-in-jsx.sh
+  doc_ref: '#11-frontend'
+- id: UI-TRANSFORM-001
+  lang: typescript
+  severity: blocking
+  statement: "No raw data transformation (.map/.filter/.reduce on API responses) inside\
+    \ components \u2014 data shaping lives in lib/transforms/<feature>.viewmodel.ts."
+  check: scripts/checks/no-data-transforms-in-components.sh
+  doc_ref: '#11-frontend'
+- id: UI-MAGIC-VALUES-001
+  lang: typescript
+  severity: blocking
+  statement: "No inline business thresholds or status string literals in components\
+    \ \u2014 must be sourced from lib/config or contract enums."
+  check: scripts/checks/no-magic-values-in-components.sh
+  doc_ref: '#11-frontend'
+- id: UI-FETCH-001
+  lang: typescript
+  severity: blocking
+  statement: "No fetch()/axios call inside a component or page file \u2014 only lib/data/*\
+    \ may call the network directly."
+  check: scripts/checks/no-fetch-in-components.sh
+  doc_ref: '#11-frontend'
+- id: UI-STYLE-001
+  lang: typescript
+  severity: required-with-justification
+  statement: No inline hex color / raw px value outside the design-token file.
+  check: scripts/checks/no-inline-style-values.sh
+  doc_ref: '#11-frontend'
+- id: UI-INLINE-STYLE-001
+  lang: typescript
+  severity: blocking
+  statement: "No inline conditional logic inside style={{...}} \u2014 styling logic\
+    \ belongs in dedicated style resolvers or variant systems."
+  check: scripts/checks/no-inline-style-ternary.sh
+  doc_ref: '#11-frontend'
+- id: UI-CROSS-IMPORT-001
+  lang: typescript
+  severity: blocking
+  statement: "No cross-feature component imports \u2014 features must not import from\
+    \ sibling features (promote shared UI to components/ui/ or lib/)."
+  check: scripts/checks/no-cross-feature-imports.sh
+  doc_ref: '#11-frontend'
+- id: UI-COMPONENT-SIZE-001
+  lang: typescript
+  severity: advisory
+  statement: "Flag .tsx component files over 100 lines \u2014 split into container\
+    \ vs presentational components."
+  check: scripts/checks/check-component-size.sh
+  doc_ref: '#11-frontend'
+- id: DB-MIGRATION-001
+  lang: sql
+  severity: blocking
+  statement: No NOT NULL column added without a default in the same migration.
+  check: scripts/checks/lint-migrations.sh
+  doc_ref: '#12-database-layer'
+- id: DB-MIGRATION-002
+  lang: sql
+  severity: blocking
+  statement: No destructive migration (DROP/RENAME COLUMN, narrowing a type) without
+    an `-- ADR:` reference comment in the same file.
+  check: scripts/checks/lint-migrations.sh
+  doc_ref: '#12-database-layer'
+- id: DB-MIGRATION-003
+  lang: sql
+  severity: blocking
+  statement: Every CREATE TABLE, ADD COLUMN, and CREATE INDEX migration must use IF
+    NOT EXISTS guards for idempotency.
+  check: scripts/checks/lint-migrations-idempotent.sh
+  doc_ref: '#12-database-layer'
+- id: DB-RLS-001
+  lang: sql
+  severity: blocking
+  statement: "Every table with a tenant_id column must enforce Row-Level Security\
+    \ (RLS) policies at the database engine \u2014 application WHERE filtering alone\
+    \ is banned."
+  check: scripts/checks/lint-migrations-rls.sh
+  doc_ref: '#12-database-layer'
+- id: DB-IDEMPOTENCY-001
+  lang: sql
+  severity: blocking
+  statement: Dedicated idempotency / processed_events tables must enforce composite
+    UNIQUE(tenant_id, idempotency_key) constraint and payload_hash column.
+  check: scripts/checks/lint-idempotency-table.sh
+  doc_ref: '#13-contracts-and-validation'
+- id: DB-COMPAT-001
+  lang: any
+  severity: blocking
+  statement: Database backward compatibility window must be defined in base.yaml and
+    migrations must follow sequential versioning.
+  check: scripts/checks/validate-db-compat-window.sh
+  doc_ref: '#12-database-layer'
+- id: DB-STATEMENT-TIMEOUT-001
+  lang: any
+  severity: blocking
+  statement: Database connection pools and queries must specify explicit statement/query
+    timeouts to prevent unbounded resource locking.
+  check: scripts/checks/check-db-statement-timeout.sh
+  doc_ref: '#12-database-layer'
+- id: DB-TENANT-001
+  lang: any
+  severity: blocking
+  statement: "Every repository/query function takes tenant scope as a mandatory parameter\
+    \ \u2014 no unscoped query helper may exist."
+  check: scripts/checks/no-unscoped-queries.sh
+  doc_ref: '#12-database-layer'
+- id: REPLICA-CONSISTENCY-001
+  lang: any
+  severity: blocking
+  statement: Repository read consistency must be explicitly declared (STRONG vs EVENTUAL);
+    arbitrary sleep/delay before reading written data is strictly banned.
+  check: scripts/checks/check-replica-consistency-param.sh
+  doc_ref: '#12-database-layer'
+- id: OUTBOX-PATTERN-001
+  lang: any
+  severity: blocking
+  statement: "State-mutating operations that emit events must use the transactional\
+    \ outbox pattern \u2014 direct broker publishing in DB repositories is banned."
+  check: scripts/checks/no-uncoordinated-event-publish.sh
+  doc_ref: '#13-contracts-and-validation'
+- id: CENTRAL-001
+  lang: any
+  severity: blocking
+  statement: "Strictly enforce \xA79 Centralization Master List: no bespoke HTTP clients,\
+    \ connection pools, ad-hoc rules engines, or tracing in features/."
+  check: scripts/checks/enforce-centralization-master-list.sh
+  doc_ref: '#9-everything-centralized'
+- id: API-IDEMPOTENCY-001
+  lang: any
+  severity: blocking
+  statement: Every mutating (POST/PUT/PATCH/DELETE) contract operation requires an
+    Idempotency-Key header.
+  check: scripts/checks/require-idempotency-key-openapi.sh
+  doc_ref: '#14-the-full-identifier-taxonomy'
+- id: API-CONCURRENCY-001
+  lang: any
+  severity: required-with-justification
+  statement: Every update-by-ID contract operation supports If-Match/ETag optimistic
+    concurrency.
+  check: scripts/checks/require-etag-openapi.sh
+  doc_ref: '#13-contracts-and-validation'
+- id: ID-TAXONOMY-001
+  lang: any
+  severity: blocking
+  statement: "Strictly enforce \xA714 Identifier Taxonomy: no mixing identifier meanings\
+    \ (Request-ID != Idempotency-Key != Trace-ID), ambient propagation, and no downstream\
+    \ Trace-ID regeneration."
+  check: scripts/checks/validate-identifier-taxonomy.sh
+  doc_ref: '#14-the-full-identifier-taxonomy'
+- id: SECURITY-SECRET-001
+  lang: any
+  severity: blocking
+  statement: No secret, key, or credential pattern committed anywhere in the diff,
+    including fixtures and examples.
+  check: scripts/checks/no-committed-secrets.sh
+  doc_ref: '#16-more-non-negotiable-rules'
+- id: DEP-PIN-001
+  lang: any
+  severity: blocking
+  statement: "No floating dependency version range in a committed manifest \u2014\
+    \ lockfiles only."
+  check: scripts/checks/no-floating-deps.sh
+  doc_ref: '#16-more-non-negotiable-rules'
+- id: CONFIG-SCHEMA-001
+  lang: any
+  severity: blocking
+  statement: Every field in every config yaml file validates against platform/config/schema/*.schema.json.
+  check: scripts/checks/validate-config.sh
+  doc_ref: '#6-config-management'
+- id: CONFIG-ACCESS-001
+  lang: any
+  severity: blocking
+  statement: "No string-indexed or untyped config access (config['key'], os.Getenv,\
+    \ System.getenv) in feature code \u2014 use injected typed structs/models."
+  check: scripts/checks/no-string-config-access.sh
+  doc_ref: '#6-config-management'
+- id: RESOURCE-TIMEOUT-001
+  lang: any
+  severity: required-with-justification
+  statement: "Every outbound HTTP/DB/broker call has an explicit timeout \u2014 no\
+    \ default-forever client construction."
+  check: scripts/checks/no-default-timeouts.sh
+  doc_ref: '#16-more-non-negotiable-rules'
+- id: ADR-COVERAGE-001
+  lang: any
+  severity: blocking
+  statement: A structural change (new top-level folder, new port pattern, new engine
+    action type) has a linked ADR in the PR/commit description.
+  check: scripts/checks/check-adr-coverage.sh
+  doc_ref: '#10-ai-cant-remember'
+- id: AGENT-LOOP-001
+  lang: any
+  severity: blocking
+  statement: Every change proposal (PR / commit) must cite which ADR(s) and architecture
+    doc section(s) it followed (Agent 1 Generator protocol).
+  check: scripts/checks/validate-3-agent-loop-citations.sh
+  doc_ref: '#10-ai-cant-remember'
+- id: RULE-ENGINE-LEVELS-001
+  severity: blocking
+  concern: Rules Engine Level Hierarchy & Auditability
+  lang: any
+  check: scripts/checks/no-if-else-business-logic.sh
+  description: Bans nested/compound if-else business logic in feature code. Business
+    decisions must use the 3-level Rules Engine (Level 1 Atomic, Level 2 Compound,
+    Level 3 Policy) with mandatory auditability, trace IDs, and user-facing explanations.

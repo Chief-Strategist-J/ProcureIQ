@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Install once: git config core.hooksPath .githooks
+# This is the FIRST enforcement layer — before CI, before a human even sees the diff.
+# It can be bypassed with `git commit --no-verify`, which is exactly why CI (§8) re-runs
+# the same checks server-side. Bypassing locally does not mean the rule doesn't apply.
+
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+echo "Running rules-manifest checks before commit..."
+bash scripts/run-rules-manifest.sh --changed
+status=$?
+
+if [ $status -ne 0 ]; then
+  echo
+  echo "Commit blocked: one or more BLOCKING rules failed."
+  echo "Fix the violation, or if the rule itself is wrong, open an ADR proposing a change"
+  echo "to platform/adr/ instead of bypassing this hook."
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,49 @@
+version: "1.0"
+name: multi_organization_identity_flow
+description: Multi-organization tenant context switching, RBAC evaluation, role assignment, and immutable audit ledger verification flow.
+
+steps:
+  - id: fetch_organizations
+    action: User enters identity module or shell context; fetch accessible organizations
+    tracing:
+      event: identity.organizations.fetch
+      generate_span: true
+    attributes:
+      service.name: procureiq-identity
+      http.target: /api/v1/identity/organizations
+
+  - id: switch_organization_context
+    action: User selects target organization from OrgSwitcher dropdown
+    tracing:
+      event: identity.organization.switch
+      generate_span: true
+    attributes:
+      orgId: ${selectedOrgId}
+
+  - id: fetch_role_assignments
+    action: Load role assignments scoped to selected organization and principal
+    tracing:
+      event: identity.assignments.fetch
+      generate_span: true
+    attributes:
+      http.target: /api/v1/identity/organizations/${selectedOrgId}/assignments
+      orgId: ${selectedOrgId}
+
+  - id: assign_role_governance
+    action: Administrator assigns role; payload is evaluated via rules engine and dispatched
+    tracing:
+      event: identity.role.assign
+      generate_span: true
+    attributes:
+      http.target: /api/v1/identity/organizations/${selectedOrgId}/assignments
+      roleName: ${roleName}
+      principalType: ${principalType}
+
+  - id: verify_audit_ledger_chain
+    action: Request cryptographic verification of sha256 previous-hash chain for tenant audit ledger
+    tracing:
+      event: identity.audit.verify
+      generate_span: true
+    attributes:
+      http.target: /api/v1/identity/organizations/${selectedOrgId}/audit-events/verify
+      orgId: ${selectedOrgId}

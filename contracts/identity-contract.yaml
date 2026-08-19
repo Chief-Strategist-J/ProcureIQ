@@ -1,0 +1,238 @@
+openapi: 3.0.3
+info:
+  title: ProcureIQ Multi-Organization Identity API Contract
+  version: 1.0.0
+  description: Centralized contract for multi-organization identity management, memberships, role assignments, and verifiable audit logging.
+paths:
+  /api/v1/identity/organizations:
+    get:
+      summary: List organizations accessible by current principal
+      operationId: listOrganizations
+      responses:
+        '200':
+          description: List of organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+  /api/v1/identity/organizations/{orgId}/assignments:
+    get:
+      summary: Get role assignments for an organization
+      operationId: getRoleAssignments
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: principalType
+          in: query
+          schema:
+            type: string
+        - name: principalId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of role assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleAssignment'
+    post:
+      summary: Assign role within an organization
+      operationId: assignRole
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executorId
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignRoleInput'
+      responses:
+        '200':
+          description: Role assigned successfully
+  /api/v1/identity/organizations/{orgId}/audit-events:
+    get:
+      summary: Get audit events ledger for an organization
+      operationId: getAuditEvents
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+  /api/v1/identity/organizations/{orgId}/audit-events/verify:
+    post:
+      summary: Verify cryptographic hash integrity of organization audit chain
+      operationId: verifyAuditChain
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChainVerificationResult'
+
+components:
+  schemas:
+    Organization:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        tier:
+          type: string
+          enum: [starter, professional, enterprise]
+        role:
+          type: string
+        isDefault:
+          type: boolean
+    RoleAssignment:
+      type: object
+      required:
+        - id
+        - principalType
+        - principalId
+        - scopeType
+        - roleName
+        - createdAt
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        principalType:
+          type: string
+          enum: [user, service_account]
+        principalId:
+          type: string
+        scopeType:
+          type: string
+          enum: [org, workspace]
+        scopeId:
+          type: string
+        roleName:
+          type: string
+        expiresAt:
+          type: string
+        createdAt:
+          type: string
+    AssignRoleInput:
+      type: object
+      required:
+        - orgId
+        - executorId
+        - principalType
+        - principalId
+        - roleName
+      properties:
+        orgId:
+          type: string
+        executorId:
+          type: string
+        principalType:
+          type: string
+          enum: [user, service_account]
+        principalId:
+          type: string
+        roleId:
+          type: integer
+        roleName:
+          type: string
+        scopeType:
+          type: string
+          enum: [org, workspace]
+        scopeId:
+          type: string
+        expiresAt:
+          type: string
+    AuditEvent:
+      type: object
+      required:
+        - id
+        - action
+        - resourceType
+        - prevHash
+        - entryHash
+        - occurredAt
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        actorType:
+          type: string
+        actorId:
+          type: string
+        action:
+          type: string
+        resourceType:
+          type: string
+        resourceId:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        beforeValue:
+          type: string
+        afterValue:
+          type: string
+        prevHash:
+          type: string
+        entryHash:
+          type: string
+        occurredAt:
+          type: string
+    ChainVerificationResult:
+      type: object
+      required:
+        - isValid
+        - totalEventsChecked
+      properties:
+        isValid:
+          type: boolean
+        totalEventsChecked:
+          type: integer
+        brokenIndex:
+          type: integer
+        failureReason:
+          type: string
