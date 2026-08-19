@@ -53,19 +53,35 @@ In the root [.env](file:///home/btpl-lap-22/live/ProcureIQ/.env) file, change th
 ./scripts/run-dev.sh python
 ```
 
-#### 4. Frontend (Next.js & All Micro Frontends)
+#### 4. .NET Backend (Optional)
 ```bash
-./scripts/run-dev.sh all-mfes
+./scripts/run-dev.sh dotnet
 ```
 
-#### 5. Local Database Backup
+#### 5. Frontend (Next.js & Micro Frontends)
 ```bash
+# Main Next.js frontend dev server (Port 3000)
+./scripts/run-dev.sh frontend   # or ./scripts/run-dev.sh all-mfes
+
+# Specific Micro-Frontend target (e.g. Auth MFE on Port 8992)
+./scripts/run-dev.sh mfe-auth
+
+# Production build and run on Port 3000
+./scripts/run-dev.sh prod-all
+```
+
+#### 6. Local Database Backup & Restore
+```bash
+# Backup local AlloyDB database
 ./scripts/run-dev.sh backup
+
+# Restore local database from latest backup
+./scripts/run-dev.sh restore
 ```
 
-#### 6. Local Database Restore
+#### 7. Script Menu & Usage Help
 ```bash
-./scripts/run-dev.sh restore
+./scripts/run-dev.sh help
 ```
 
 ---
