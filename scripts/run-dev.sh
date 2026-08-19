@@ -70,6 +70,7 @@ setup_env_vars() {
         export NEXT_PUBLIC_API_URL="$LOCAL_NEXT_SPRINGBOOT_API"
         export NEXT_PUBLIC_PYTHON_API_URL="$LOCAL_NEXT_PYTHON_API"
         export NEXT_PUBLIC_WEBRTC_SIGNALING_URL="$LOCAL_NEXT_WEBRTC_WS"
+        export NEXT_DISABLE_SWC_LOCKFILE_PATCH=1
     else
         # Backend environment variables (Production / Remote Supabase)
         export DB_HOST="$PROD_DB_HOST"
@@ -84,6 +85,7 @@ setup_env_vars() {
         export NEXT_PUBLIC_API_URL="$PROD_NEXT_SPRINGBOOT_API"
         export NEXT_PUBLIC_PYTHON_API_URL="$PROD_NEXT_PYTHON_API"
         export NEXT_PUBLIC_WEBRTC_SIGNALING_URL="$PROD_NEXT_WEBRTC_WS"
+        export NEXT_DISABLE_SWC_LOCKFILE_PATCH=1
     fi
 }
 
@@ -92,9 +94,8 @@ setup_local_database_schemas() {
         echo -e "${YELLOW}Checking if local database schemas/tables need to be created...${NC}"
         
         if ! docker ps --format '{{.Names}}' | grep -q "^procureiq-alloydb-local$"; then
-            echo -e "${RED}Error: Local AlloyDB container (procureiq-alloydb-local) is not running!${NC}"
-            echo -e "${YELLOW}Attempting to start database...${NC}"
-            "$PROJECT_ROOT/deploy/alloydb/alloydb-cli.sh" local-up
+            echo -e "${YELLOW}Attempting to start database container (procureiq-alloydb-local)...${NC}"
+            docker start procureiq-alloydb-local >/dev/null 2>&1 || "$PROJECT_ROOT/deploy/alloydb/alloydb-cli.sh" local-up >/dev/null 2>&1 || true
             sleep 3
         fi
 
@@ -276,11 +277,13 @@ run_frontend() {
 NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 NEXT_PUBLIC_PYTHON_API_URL=$NEXT_PUBLIC_PYTHON_API_URL
 NEXT_PUBLIC_WEBRTC_SIGNALING_URL=$NEXT_PUBLIC_WEBRTC_SIGNALING_URL
+NEXT_DISABLE_SWC_LOCKFILE_PATCH=1
 EOF
+    export NEXT_DISABLE_SWC_LOCKFILE_PATCH=1
     if [ -d "$target" ]; then
-        npx next dev "$target" -p "$port"
+        NEXT_DISABLE_SWC_LOCKFILE_PATCH=1 npx next dev "$target" -p "$port"
     else
-        npx next dev -p "$port"
+        NEXT_DISABLE_SWC_LOCKFILE_PATCH=1 npx next dev -p "$port"
     fi
 }
 
